@@ -429,8 +429,10 @@ export default function BattleshipGame({ onBackToMenu, selectedBank, session }) 
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-3 md:p-4 flex flex-col justify-center shadow-lg mb-3">
-                <p className="text-base sm:text-lg font-semibold text-blue-50 text-center leading-snug break-words">{currentQuestion.q}</p>
+              <div className="w-full min-h-[120px] bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-4 flex items-center justify-center shadow-lg mb-3">
+                <p className="text-lg md:text-xl font-bold text-white text-center leading-snug break-words">
+                  {currentQuestion.q}
+                </p>
               </div>
 
               <div className={`shrink-0 h-[70px] rounded-2xl flex items-center justify-center p-3 mb-3 transition-all duration-500 border-2 
