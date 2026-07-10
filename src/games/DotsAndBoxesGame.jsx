@@ -1,26 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, Play, CheckCircle2, XCircle, RefreshCcw, HelpCircle, ArrowRight, Trophy, Gamepad2, Timer, Sparkles, X, RotateCcw, AlertTriangle, LayoutGrid } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient'; 
 
-const mockGroups = [
-  { id: 1, name: "קבוצה 1 (אדום)", color: "#E94560", glow: "rgba(233, 69, 96, 0.6)" },
-  { id: 2, name: "קבוצה 2 (כחול)", color: "#00BCD4", glow: "rgba(0, 188, 212, 0.6)" }
-];
-
-const mockQuestions = [
-  { id: 1, q: "מהי בירת צרפת?", a: "פריז" },
-  { id: 2, q: "כמה שניות יש בשעה?", a: "3600" },
-  { id: 3, q: "מי גילה את כוח המשיכה?", a: "אייזק ניוטון" },
-  { id: 4, q: "מהו השורש הריבועי של 144?", a: "12" },
-  { id: 5, q: "איזה יסוד מסומן באות O?", a: "חמצן" }
-];
-
-export default function DotsAndBoxesGame({ onBackToMenu }) {
+export default function DotsAndBoxesGame({ onBackToMenu, selectedBank, session }) {
   const [gridSize, setGridSize] = useState(6);
   const [timerDuration, setTimerDuration] = useState(30);
   const [questionOnEveryLine, setQuestionOnEveryLine] = useState(false);
   
   const [gameState, setGameState] = useState('WAITING_START'); 
-  const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
+  const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   
   const [lines, setLines] = useState({}); 
   const [boxes, setBoxes] = useState({}); 
@@ -29,12 +18,68 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
   const [timeLeft, setTimeLeft] = useState(30);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [showSolution, setShowSolution] = useState(false);
-  const [scores, setScores] = useState({ 1: 0, 2: 0 });
   
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
-  const currentGroup = mockGroups[currentGroupIndex];
+  const [questions, setQuestions] = useState([]); 
+  const [students, setStudents] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [scores, setScores] = useState({});
+  const [studentPools, setStudentPools] = useState({}); 
+  const [selectedStudents, setSelectedStudents] = useState([]); 
+
+  const currentTeam = teams[currentTeamIndex];
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingData(true);
+      if (!session?.user?.id || !selectedBank) return;
+
+      const { data: qData } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('topic_id', selectedBank)
+        .eq('teacher_id', session.user.id);
+      setQuestions(qData || []);
+
+      const { data: sData } = await supabase
+        .from('students')
+        .select('*')
+        .eq('teacher_id', session.user.id)
+        .eq('is_playing', true);
+      
+      const activeStudents = sData || [];
+      setStudents(activeStudents);
+
+      const uniqueTeamNames = [...new Set(activeStudents.map(s => s.team || 'קבוצה כללית'))];
+      const beautifulColors = ["#E94560", "#00BCD4", "#FF9E00", "#40FF5A", "#7B2CBF", "#F15BB5"];
+      
+      const dynamicTeams = uniqueTeamNames.map((name, index) => ({
+        id: name,
+        name: name,
+        color: beautifulColors[index % beautifulColors.length],
+        glow: `rgba(255,255,255,0.2)`
+      }));
+      setTeams(dynamicTeams);
+
+      const initialScores = {};
+      const initialPools = {};
+      dynamicTeams.forEach(t => {
+        initialScores[t.id] = 0;
+        initialPools[t.id] = activeStudents.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+      });
+      setScores(initialScores);
+      setStudentPools(initialPools);
+
+      if (dynamicTeams.length > 0) {
+        setCurrentTeamIndex(Math.floor(Math.random() * dynamicTeams.length));
+      }
+      setIsLoadingData(false);
+    };
+
+    fetchData();
+  }, [session, selectedBank]);
 
   useEffect(() => {
     let timer;
@@ -50,7 +95,6 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
     setLines({});
     setBoxes({});
     setPreviewLine(null);
-    setScores({ 1: 0, 2: 0 });
     setGameState('WAITING_START');
   }, []);
 
@@ -59,21 +103,71 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
   }, [gridSize, initGame]);
 
   const startGame = () => {
+    if (teams.length === 0) {
+      alert("אין תלמידים פעילים במערכת! אנא הכנס תלמידים וסמן אותם ב-V בפאנל הניהול.");
+      return;
+    }
+
     initGame(gridSize);
+    
+    const freshScores = {};
+    const freshPools = {};
+    teams.forEach(t => {
+      freshScores[t.id] = 0;
+      freshPools[t.id] = students.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+    });
+    setScores(freshScores);
+    setStudentPools(freshPools);
+
     setGameState('WAITING_LINE');
-    setCurrentGroupIndex(Math.floor(Math.random() * mockGroups.length));
+    setCurrentTeamIndex(Math.floor(Math.random() * teams.length));
   };
 
   const nextTurn = () => {
-    setCurrentGroupIndex(prev => (prev + 1) % mockGroups.length);
+    if (teams.length === 0) return;
+    setCurrentTeamIndex(prev => (prev + 1) % teams.length);
     setGameState('WAITING_LINE');
     setPreviewLine(null);
     setShowSolution(false);
+    setSelectedStudents([]);
   };
 
   const loadQuestion = () => {
-    const q = mockQuestions[Math.floor(Math.random() * mockQuestions.length)];
-    setCurrentQuestion(q);
+    if (questions.length === 0) {
+      alert("אין שאלות במאגר זה! אנא הוסף שאלות בפאנל הניהול.");
+      return;
+    }
+    if (!currentTeam) return;
+
+    const teamStudents = students.filter(s => (s.team || 'קבוצה כללית') === currentTeam.id);
+    if (teamStudents.length === 0) return;
+
+    let currentPool = studentPools[currentTeam.id] || [];
+
+    if (currentPool.length < 2) {
+      currentPool = teamStudents.map(s => s.id);
+    }
+
+    let chosenIds = [];
+    const poolCopy = [...currentPool];
+    
+    for (let i = 0; i < 2; i++) {
+      if (poolCopy.length === 0) break;
+      const randomIndex = Math.floor(Math.random() * poolCopy.length);
+      chosenIds.push(poolCopy.splice(randomIndex, 1)[0]);
+    }
+
+    const chosenObjects = teamStudents.filter(s => chosenIds.includes(s.id));
+    setSelectedStudents(chosenObjects);
+
+    setStudentPools(prev => ({
+      ...prev,
+      [currentTeam.id]: poolCopy
+    }));
+
+    const randomQ = questions[Math.floor(Math.random() * questions.length)];
+    setCurrentQuestion({ q: randomQ.question_text, a: randomQ.answer });
+    
     setTimeLeft(timerDuration);
     setShowSolution(false);
     setGameState('QUESTION');
@@ -88,7 +182,7 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
 
   const checkIfBoxWillComplete = (dir, r, c, currentLines) => {
     let completesBox = false;
-    const testLines = { ...currentLines, [`${dir}-${r}-${c}`]: currentGroup.id };
+    const testLines = { ...currentLines, [`${dir}-${r}-${c}`]: currentTeam?.id || 1 };
 
     const checkSquare = (sr, sc) => {
       if (sr < 0 || sr >= gridSize - 1 || sc < 0 || sc >= gridSize - 1) return false;
@@ -118,7 +212,7 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
     if (askQuestion) {
       loadQuestion();
     } else {
-      const newLines = { ...lines, [previewLine.key]: currentGroup.id };
+      const newLines = { ...lines, [previewLine.key]: currentTeam.id };
       setLines(newLines);
       setPreviewLine(null);
       nextTurn();
@@ -126,8 +220,8 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
   };
 
   const handleAnswer = (isCorrect) => {
-    if (isCorrect && previewLine) {
-      const newLines = { ...lines, [previewLine.key]: currentGroup.id };
+    if (isCorrect && previewLine && currentTeam) {
+      const newLines = { ...lines, [previewLine.key]: currentTeam.id };
       setLines(newLines);
       
       let completedCount = 0;
@@ -141,7 +235,7 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
             newLines[`h-${sr + 1}-${sc}`] && 
             newLines[`v-${sr}-${sc}`] && 
             newLines[`v-${sr}-${sc + 1}`]) {
-          newBoxes[`${sr}-${sc}`] = currentGroup.id;
+          newBoxes[`${sr}-${sc}`] = currentTeam.id;
           return 1;
         }
         return 0;
@@ -161,7 +255,7 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
       setBoxes(newBoxes);
       
       if (completedCount > 0) {
-        setScores(prev => ({ ...prev, [currentGroup.id]: prev[currentGroup.id] + completedCount }));
+        setScores(prev => ({ ...prev, [currentTeam.id]: (prev[currentTeam.id] || 0) + completedCount }));
       }
 
       const totalBoxes = (gridSize - 1) * (gridSize - 1);
@@ -179,7 +273,7 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
       isOpen: true,
       message: "האם אתה בטוח שברצונך לאפס את הלוח ולהתחיל משחק חדש?",
       onConfirm: () => {
-        initGame(gridSize);
+        startGame();
         setShowSettings(false);
         setConfirmDialog({ isOpen: false, message: '', onConfirm: null });
       }
@@ -200,16 +294,15 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
   const getWinner = () => {
     let topScore = -1;
     let winner = null;
-    mockGroups.forEach(g => {
-      if (scores[g.id] > topScore) {
-        topScore = scores[g.id];
-        winner = g;
+    teams.forEach(t => {
+      if ((scores[t.id] || 0) > topScore) {
+        topScore = scores[t.id];
+        winner = t;
       }
     });
-    return winner;
+    return winner || { name: 'אין מנצח', color: '#fff' };
   };
 
-  // === ציור הלוח ב-SVG ===
   const renderBoard = () => {
     const elements = [];
     const spacing = 100;
@@ -217,12 +310,11 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
     const lineThickness = 16;
     let lineCounter = 1;
 
-    // 1. ציור הריבועים הפנימיים (עם האנימציה!)
     for (let r = 0; r < gridSize - 1; r++) {
       for (let c = 0; c < gridSize - 1; c++) {
         const boxOwnerId = boxes[`${r}-${c}`];
         if (boxOwnerId) {
-          const owner = mockGroups.find(g => g.id === boxOwnerId);
+          const owner = teams.find(g => g.id === boxOwnerId);
           elements.push(
             <rect 
               key={`box-${r}-${c}`}
@@ -230,9 +322,8 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
               y={r * spacing + padding + lineThickness/2} 
               width={spacing - lineThickness} 
               height={spacing - lineThickness} 
-              fill={owner.color}
+              fill={owner?.color || '#FFF'}
               style={{
-                // הגדרת מרכז האנימציה (ציר ה-X וה-Y של האמצע של הריבוע)
                 transformOrigin: `${c * spacing + padding + spacing/2}px ${r * spacing + padding + spacing/2}px`,
                 animation: 'boxFillAnim 0.6s ease-out forwards'
               }}
@@ -242,13 +333,20 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
       }
     }
 
-    // 2. ציור קווים אופקיים ומספור ממורכז
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize - 1; c++) {
         const key = `h-${r}-${c}`;
         const ownerId = lines[key];
         const isPreview = previewLine?.key === key;
-        const color = ownerId ? mockGroups.find(g => g.id === ownerId).color : isPreview ? currentGroup.color : "#cbd5e1";
+        
+        let color = "#cbd5e1";
+        if (ownerId) {
+            const ownerTeam = teams.find(g => g.id === ownerId);
+            color = ownerTeam ? ownerTeam.color : "#cbd5e1";
+        } else if (isPreview && currentTeam) {
+            color = currentTeam.color;
+        }
+
         const opacity = ownerId ? 1 : isPreview ? 0.6 : 0.2;
 
         elements.push(
@@ -284,13 +382,20 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
       }
     }
 
-    // 3. ציור קווים אנכיים ומספור ממורכז
     for (let r = 0; r < gridSize - 1; r++) {
       for (let c = 0; c < gridSize; c++) {
         const key = `v-${r}-${c}`;
         const ownerId = lines[key];
         const isPreview = previewLine?.key === key;
-        const color = ownerId ? mockGroups.find(g => g.id === ownerId).color : isPreview ? currentGroup.color : "#cbd5e1";
+        
+        let color = "#cbd5e1";
+        if (ownerId) {
+            const ownerTeam = teams.find(g => g.id === ownerId);
+            color = ownerTeam ? ownerTeam.color : "#cbd5e1";
+        } else if (isPreview && currentTeam) {
+            color = currentTeam.color;
+        }
+
         const opacity = ownerId ? 1 : isPreview ? 0.6 : 0.2;
 
         elements.push(
@@ -326,7 +431,6 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
       }
     }
 
-    // 4. ציור הנקודות בסוף שיהיו מעל הקווים
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize; c++) {
         elements.push(
@@ -350,7 +454,6 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
   return (
     <div dir="rtl" className="h-screen w-full bg-[#1A1A2E] text-white font-sans flex flex-col md:flex-row overflow-hidden relative">
       
-      {/* הגדרת אנימציית המילוי בסגנון ColorAnimation של WPF */}
       <style>{`
         @keyframes boxFillAnim {
           0% { opacity: 0; transform: scale(0.5); }
@@ -375,19 +478,20 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
           </button>
         </div>
 
-        <div className="flex gap-4 mb-4 shrink-0">
-          {mockGroups.map((grp) => {
-            const isActive = currentGroupIndex === mockGroups.indexOf(grp) && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
+        <div className="flex gap-4 mb-4 shrink-0 overflow-x-auto pb-2">
+          {teams.length === 0 && <p className="text-center w-full text-slate-500 text-sm">ממתין לנתונים...</p>}
+          {teams.map((grp, index) => {
+            const isActive = currentTeamIndex === index && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
             return (
               <div 
                 key={grp.id} 
-                className={`relative flex-1 rounded-2xl p-4 flex flex-col items-center justify-center border-2 transition-all duration-500 overflow-hidden
+                className={`relative flex-1 min-w-[100px] rounded-2xl p-4 flex flex-col items-center justify-center border-2 transition-all duration-500 overflow-hidden
                   ${isActive ? 'border-white/50 scale-105' : 'border-white/5 bg-black/40 scale-100'}`}
                 style={{ backgroundColor: isActive ? grp.color : '' }}
               >
                 {isActive && <div className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none" />}
-                <span className="text-sm font-bold text-center mb-1 z-10">{grp.name}</span>
-                <span className="text-4xl font-black z-10 drop-shadow-md">{scores[grp.id]}</span>
+                <span className="text-sm font-bold text-center mb-1 z-10 break-all">{grp.name}</span>
+                <span className="text-4xl font-black z-10 drop-shadow-md">{scores[grp.id] || 0}</span>
               </div>
             );
           })}
@@ -400,25 +504,30 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
               <div className="w-24 h-24 rounded-full bg-indigo-500/10 flex items-center justify-center">
                 <Gamepad2 size={48} className="text-indigo-400" />
               </div>
-              <p className="text-lg text-slate-300 text-center font-medium px-4">לחץ על 'התחל משחק' כדי להתחיל את התחרות.</p>
+              <p className="text-lg text-slate-300 text-center font-medium px-4">
+                {isLoadingData ? 'מתחבר למסד הנתונים ומושך נתונים...' : `הלוח מוכן עם ${questions.length} שאלות ו-${students.length} תלמידים פעילים.`}
+              </p>
               <button 
                 onClick={startGame}
-                className="mt-4 w-full py-4 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 font-black text-xl flex items-center justify-center gap-3 hover:scale-105 transition-all shadow-[0_0_20px_rgba(99,102,241,0.4)]"
+                disabled={isLoadingData}
+                className={`mt-4 w-full py-4 rounded-xl font-black text-xl flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(99,102,241,0.4)]
+                  ${isLoadingData ? 'bg-slate-700 text-slate-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-indigo-500 to-purple-600 hover:scale-105 text-white'}`}
               >
-                <Play fill="currentColor" size={24} /> התחל משחק
+                {isLoadingData ? <RefreshCcw className="animate-spin" size={24} /> : <Play fill="currentColor" size={24} />} 
+                {isLoadingData ? 'טוען...' : 'התחל משחק'}
               </button>
             </div>
           )}
 
-          {gameState === 'WAITING_LINE' && (
+          {gameState === 'WAITING_LINE' && currentTeam && (
             <div className="h-full flex flex-col items-center justify-center gap-8 animate-in fade-in slide-in-from-right-8 duration-500">
               <div className="text-center">
-                <h3 className="text-2xl font-black mb-2" style={{ color: currentGroup.color }}>תור {currentGroup.name}</h3>
+                <h3 className="text-2xl font-black mb-2" style={{ color: currentTeam.color }}>תור {currentTeam.name}</h3>
                 <p className="text-slate-300 text-lg">לחצו על מספר הקו בלוח שתרצו לתפוס.</p>
               </div>
               
               <div className={`p-8 rounded-full border-4 border-dashed transition-all duration-500 ${previewLine ? 'border-transparent' : 'border-slate-600 animate-pulse'}`}
-                   style={previewLine ? { backgroundColor: currentGroup.color } : {}}>
+                   style={previewLine ? { backgroundColor: currentTeam.color } : {}}>
                 <LayoutGrid size={64} className={previewLine ? 'text-white drop-shadow-md' : 'text-slate-600'} />
               </div>
 
@@ -430,14 +539,27 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
                     ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:scale-105 hover:shadow-[0_0_20px_rgba(245,158,11,0.5)] text-white cursor-pointer' 
                     : 'bg-white/5 text-slate-500 cursor-not-allowed border border-white/5'}`}
               >
-                <CheckCircle2 size={24} /> אשר קו 
+                <CheckCircle2 size={24} /> 
+                {previewLine && (checkIfBoxWillComplete(previewLine.dir, previewLine.r, previewLine.c, lines) || questionOnEveryLine) 
+                  ? 'אשר קו והגרל תלמידים' 
+                  : 'אשר קו וסיים תור'}
               </button>
             </div>
           )}
 
           {gameState === 'QUESTION' && currentQuestion && (
             <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-500">
-              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-4 border border-white/10 shadow-inner">
+              
+              <div className="bg-purple-900/40 border border-purple-500/30 rounded-2xl p-4 mb-3 text-center shadow-inner">
+                <p className="text-xs text-purple-300 font-bold mb-1">🎯 התלמידים שנבחרו לענות:</p>
+                <p className="text-xl font-black text-yellow-300 tracking-wide drop-shadow-sm">
+                  {selectedStudents.length > 0 
+                    ? selectedStudents.map(s => s.name).join(' ⚔️ ') 
+                    : 'טוען תלמיד...'}
+                </p>
+              </div>
+
+              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-3 border border-white/10 shadow-inner">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Timer size={20} />
                   <span className="font-medium text-lg">זמן נותר:</span>
@@ -447,13 +569,13 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-6 flex flex-col justify-center shadow-lg mb-4">
-                <p className="text-2xl font-bold text-blue-50 text-center leading-relaxed">
+              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-3 md:p-4 flex flex-col justify-center shadow-lg mb-3">
+                <p className="text-base sm:text-lg font-semibold text-blue-50 text-center leading-snug break-words">
                   {currentQuestion.q}
                 </p>
               </div>
 
-              <div className={`shrink-0 h-[80px] rounded-2xl flex items-center justify-center p-4 mb-4 transition-all duration-500 border-2 
+              <div className={`shrink-0 h-[70px] rounded-2xl flex items-center justify-center p-3 mb-3 transition-all duration-500 border-2 
                   ${showSolution ? 'bg-amber-500/20 border-amber-500/50' : 'bg-transparent border-transparent'}`}>
                 {showSolution && (
                   <p className="text-xl font-black text-amber-400 text-center animate-in slide-in-from-bottom-2">
@@ -518,18 +640,11 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
                   <Sparkles size={40} color="#FFF" className="absolute -top-4 -right-4 animate-ping" />
                 </div>
                 
-                <h2 className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 to-amber-500 mb-6 drop-shadow-lg">
-                  ניצחון!
-                </h2>
+                <h2 className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 to-amber-500 mb-6 drop-shadow-lg">ניצחון!</h2>
                 <p className="text-5xl font-black mb-4 tracking-wide" style={{ color: getWinner().color }}>{getWinner().name}</p>
                 <p className="text-2xl text-slate-300 mb-12 font-medium">סגרו את רוב הריבועים בלוח וניצחו!</p>
                 
-                <button 
-                  onClick={() => {
-                    initGame(gridSize);
-                  }}
-                  className="px-12 py-5 rounded-full font-black text-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:scale-110 transition-transform shadow-[0_0_30px_rgba(245,158,11,0.5)] text-white"
-                >
+                <button onClick={startGame} className="px-12 py-5 rounded-full font-black text-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:scale-110 transition-transform shadow-[0_0_30px_rgba(245,158,11,0.5)] text-white">
                   התחל משחק חדש
                 </button>
               </div>
@@ -564,14 +679,8 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
               </div>
 
               <div className="flex items-center gap-3 pt-4">
-                <input 
-                  type="checkbox" 
-                  id="chkQuestion" 
-                  checked={questionOnEveryLine} 
-                  onChange={(e) => setQuestionOnEveryLine(e.target.checked)} 
-                  className="w-5 h-5 cursor-pointer accent-indigo-500"
-                />
-                <label htmlFor="chkQuestion" className="text-lg cursor-pointer select-none">דרוש שאלה על כל קו</label>
+                <input type="checkbox" id="chkQuestion" checked={questionOnEveryLine} onChange={(e) => setQuestionOnEveryLine(e.target.checked)} className="w-5 h-5 cursor-pointer accent-indigo-500" />
+                <label htmlFor="chkQuestion" className="text-lg cursor-pointer select-none">דרוש שאלה על כל קו בלוח</label>
               </div>
             </div>
 
@@ -590,12 +699,8 @@ export default function DotsAndBoxesGame({ onBackToMenu }) {
             <AlertTriangle size={64} className="text-rose-500 mx-auto mb-6" />
             <h2 className="text-2xl font-bold mb-8 leading-relaxed text-white">{confirmDialog.message}</h2>
             <div className="flex gap-4">
-              <button onClick={() => confirmDialog.onConfirm()} className="flex-1 py-4 rounded-xl bg-rose-600 hover:bg-rose-500 font-bold text-lg transition-all shadow-[0_0_15px_rgba(225,29,72,0.4)] text-white">
-                כן, אני בטוח
-              </button>
-              <button onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: null })} className="flex-1 py-4 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-lg transition-all text-white">
-                ביטול
-              </button>
+              <button onClick={() => confirmDialog.onConfirm()} className="flex-1 py-4 rounded-xl bg-rose-600 hover:bg-rose-500 font-bold text-lg transition-all shadow-[0_0_15px_rgba(225,29,72,0.4)] text-white">כן, אני בטוח</button>
+              <button onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: null })} className="flex-1 py-4 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-lg transition-all text-white">ביטול</button>
             </div>
           </div>
         </div>

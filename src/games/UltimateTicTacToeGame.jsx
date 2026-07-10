@@ -1,18 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Settings, Play, CheckCircle2, XCircle, RefreshCcw, HelpCircle, ArrowRight, Trophy, Gamepad2, Timer, Sparkles, X, RotateCcw, AlertTriangle } from 'lucide-react';
-
-const mockGroups = [
-  { id: 1, name: "קבוצה 1 (X)", color: "#E94560", glow: "rgba(233, 69, 96, 0.6)", symbol: "X" },
-  { id: 2, name: "קבוצה 2 (O)", color: "#00BCD4", glow: "rgba(0, 188, 212, 0.6)", symbol: "O" }
-];
-
-const mockQuestions = [
-  { id: 1, q: "מהי בירת צרפת?", a: "פריז" },
-  { id: 2, q: "כמה שניות יש בשעה?", a: "3600" },
-  { id: 3, q: "מי גילה את כוח המשיכה?", a: "אייזק ניוטון" },
-  { id: 4, q: "מהו השורש הריבועי של 144?", a: "12" },
-  { id: 5, q: "איזה יסוד מסומן באות O?", a: "חמצן" }
-];
+import { supabase } from '../lib/supabaseClient';
 
 const generateInitialBoard = () => {
   return Array(3).fill(null).map((_, macroR) => 
@@ -28,14 +16,15 @@ const generateInitialBoard = () => {
   );
 };
 
-export default function UltimateTicTacToeGame({ onBackToMenu }) {
+export default function UltimateTicTacToeGame({ onBackToMenu, selectedBank, session }) {
   const [board, setBoard] = useState(generateInitialBoard());
   const [activeMacro, setActiveMacro] = useState({ r: -1, c: -1 }); 
   const [freePlay, setFreePlay] = useState(false);
   
   const [timerDuration, setTimerDuration] = useState(30);
   const [gameState, setGameState] = useState('WAITING_START'); 
-  const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
+  const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+  const [isLoadingData, setIsLoadingData] = useState(true);
   
   const [previewCell, setPreviewCell] = useState(null); 
   const [newlyWonMacros, setNewlyWonMacros] = useState([]); 
@@ -47,7 +36,66 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
-  const currentGroup = mockGroups[currentGroupIndex];
+  const [questions, setQuestions] = useState([]); 
+  const [students, setStudents] = useState([]);
+  const [teams, setTeams] = useState([]); 
+  const [studentPools, setStudentPools] = useState({}); 
+  const [selectedStudents, setSelectedStudents] = useState([]); 
+
+  const currentTeam = teams[currentTeamIndex];
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingData(true);
+      if (!session?.user?.id || !selectedBank) return;
+
+      const { data: qData } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('topic_id', selectedBank)
+        .eq('teacher_id', session.user.id);
+      setQuestions(qData || []);
+
+      const { data: sData } = await supabase
+        .from('students')
+        .select('*')
+        .eq('teacher_id', session.user.id)
+        .eq('is_playing', true);
+      
+      const activeStudents = sData || [];
+      setStudents(activeStudents);
+
+      const uniqueTeamNames = [...new Set(activeStudents.map(s => s.team || 'קבוצה כללית'))];
+      const teamNamesToUse = uniqueTeamNames.slice(0, 2);
+      const ttColors = ["#E94560", "#00BCD4"];
+      const ttSymbols = ["X", "O"];
+      const ttGlows = ["rgba(233, 69, 96, 0.6)", "rgba(0, 188, 212, 0.6)"];
+      
+      const dynamicTeams = teamNamesToUse.map((name, index) => ({
+        internalId: index + 1,
+        id: name,
+        name: name,
+        color: ttColors[index],
+        symbol: ttSymbols[index],
+        glow: ttGlows[index]
+      }));
+      
+      setTeams(dynamicTeams);
+
+      const initialPools = {};
+      dynamicTeams.forEach(t => {
+        initialPools[t.id] = activeStudents.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+      });
+      setStudentPools(initialPools);
+
+      if (dynamicTeams.length > 0) {
+        setCurrentTeamIndex(Math.floor(Math.random() * dynamicTeams.length));
+      }
+      setIsLoadingData(false);
+    };
+
+    fetchData();
+  }, [session, selectedBank]);
 
   useEffect(() => {
     let timer;
@@ -60,31 +108,77 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
   }, [gameState, timeLeft, showSolution]);
 
   const startGame = () => {
+    if (teams.length < 2) {
+      alert("המשחק דורש לפחות 2 קבוצות שונות בכיתה! אנא שייך את התלמידים ל-2 קבוצות לפחות בפאנל הניהול.");
+      return;
+    }
+
     setBoard(generateInitialBoard());
     setActiveMacro({ r: -1, c: -1 });
     setNewlyWonMacros([]);
+    
+    const freshPools = {};
+    teams.forEach(t => {
+      freshPools[t.id] = students.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+    });
+    setStudentPools(freshPools);
+
     setGameState('WAITING_CELL');
     setPreviewCell(null);
-    setCurrentGroupIndex(Math.floor(Math.random() * mockGroups.length));
+    setCurrentTeamIndex(Math.floor(Math.random() * teams.length));
   };
 
   const nextTurn = () => {
-    setCurrentGroupIndex(prev => (prev + 1) % mockGroups.length);
+    if (teams.length === 0) return;
+    setCurrentTeamIndex(prev => (prev + 1) % teams.length);
     setGameState('WAITING_CELL');
     setPreviewCell(null);
     setShowSolution(false);
+    setSelectedStudents([]);
   };
 
   const loadQuestion = () => {
-    const q = mockQuestions[Math.floor(Math.random() * mockQuestions.length)];
-    setCurrentQuestion(q);
+    if (questions.length === 0) {
+      alert("אין שאלות במאגר זה! אנא הוסף שאלות בפאנל הניהול.");
+      return;
+    }
+    if (!currentTeam) return;
+
+    const teamStudents = students.filter(s => (s.team || 'קבוצה כללית') === currentTeam.id);
+    if (teamStudents.length === 0) return;
+
+    let currentPool = studentPools[currentTeam.id] || [];
+    if (currentPool.length < 2) {
+      currentPool = teamStudents.map(s => s.id);
+    }
+
+    let chosenIds = [];
+    const poolCopy = [...currentPool];
+    
+    for (let i = 0; i < 2; i++) {
+      if (poolCopy.length === 0) break;
+      const randomIndex = Math.floor(Math.random() * poolCopy.length);
+      chosenIds.push(poolCopy.splice(randomIndex, 1)[0]);
+    }
+
+    const chosenObjects = teamStudents.filter(s => chosenIds.includes(s.id));
+    setSelectedStudents(chosenObjects);
+
+    setStudentPools(prev => ({
+      ...prev,
+      [currentTeam.id]: poolCopy
+    }));
+
+    const randomQ = questions[Math.floor(Math.random() * questions.length)];
+    setCurrentQuestion({ q: randomQ.question_text, a: randomQ.answer });
+    
     setTimeLeft(timerDuration);
     setShowSolution(false);
     setGameState('QUESTION');
   };
 
   const handleCellClick = (macroR, macroC, microR, microC) => {
-    if (gameState !== 'WAITING_CELL') return;
+    if (gameState !== 'WAITING_CELL' || !currentTeam) return;
     const targetMacro = board[macroR][macroC];
     
     if (targetMacro.state !== 0) return;
@@ -117,10 +211,10 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
   };
 
   const handleAnswer = (isCorrect) => {
-    if (isCorrect && previewCell) {
+    if (isCorrect && previewCell && currentTeam) {
       const { macroR, macroC, microR, microC } = previewCell;
       const newBoard = [...board];
-      const playerVal = currentGroup.id;
+      const playerVal = currentTeam.internalId;
       
       newBoard[macroR][macroC].microCells[microR][microC].state = playerVal;
 
@@ -205,18 +299,19 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
           </button>
         </div>
 
-        <div className="flex gap-4 mb-4 shrink-0">
-          {mockGroups.map((grp) => {
-            const isActive = currentGroupIndex === mockGroups.indexOf(grp) && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
+        <div className="flex gap-4 mb-4 shrink-0 overflow-x-auto pb-2">
+          {teams.length < 2 && <p className="text-center w-full text-rose-400 text-sm font-bold">המשחק דורש 2 קבוצות פעילות!</p>}
+          {teams.map((grp, index) => {
+            const isActive = currentTeamIndex === index && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
             return (
               <div 
                 key={grp.id} 
-                className={`relative flex-1 rounded-2xl p-4 flex flex-col items-center justify-center border-2 transition-all duration-500 overflow-hidden
+                className={`relative flex-1 min-w-[100px] rounded-2xl p-4 flex flex-col items-center justify-center border-2 transition-all duration-500 overflow-hidden
                   ${isActive ? 'border-white/50 scale-105' : 'border-white/5 bg-black/40 scale-100'}`}
                 style={{ backgroundColor: isActive ? grp.color : '' }}
               >
                 {isActive && <div className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none" />}
-                <span className="text-sm font-bold text-center mb-1 z-10 text-white drop-shadow-md">{grp.name}</span>
+                <span className="text-sm font-bold text-center mb-1 z-10 text-white drop-shadow-md break-all">{grp.name}</span>
                 <span className="text-4xl font-black z-10 drop-shadow-md text-white">{grp.symbol}</span>
               </div>
             );
@@ -230,20 +325,25 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
               <div className="w-24 h-24 rounded-full bg-pink-500/10 flex items-center justify-center">
                 <Gamepad2 size={48} className="text-pink-400" />
               </div>
-              <p className="text-lg text-slate-300 text-center font-medium px-4">לחץ על 'התחל משחק' כדי להגריל מי מתחיל.</p>
+              <p className="text-lg text-slate-300 text-center font-medium px-4">
+                {isLoadingData ? 'מתחבר למסד הנתונים ומושך נתונים...' : `הלוח מוכן עם ${questions.length} שאלות ו-${students.length} תלמידים פעילים.`}
+              </p>
               <button 
                 onClick={startGame}
-                className="mt-4 w-full py-4 rounded-xl bg-gradient-to-r from-pink-500 to-purple-600 font-black text-xl flex items-center justify-center gap-3 hover:scale-105 transition-all shadow-[0_0_20px_rgba(236,72,153,0.4)]"
+                disabled={isLoadingData || teams.length < 2}
+                className={`mt-4 w-full py-4 rounded-xl font-black text-xl flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(236,72,153,0.4)]
+                  ${(isLoadingData || teams.length < 2) ? 'bg-slate-700 text-slate-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-pink-500 to-purple-600 hover:scale-105 text-white'}`}
               >
-                <Play fill="currentColor" size={24} /> התחל משחק
+                {isLoadingData ? <RefreshCcw className="animate-spin" size={24} /> : <Play fill="currentColor" size={24} />} 
+                {isLoadingData ? 'טוען...' : 'התחל משחק'}
               </button>
             </div>
           )}
 
-          {gameState === 'WAITING_CELL' && (
+          {gameState === 'WAITING_CELL' && currentTeam && (
             <div className="h-full flex flex-col items-center justify-center gap-8 animate-in fade-in slide-in-from-right-8 duration-500">
               <div className="text-center">
-                <h3 className="text-2xl font-black mb-2" style={{ color: currentGroup.color }}>תור {currentGroup.name}</h3>
+                <h3 className="text-2xl font-black mb-2" style={{ color: currentTeam.color }}>תור {currentTeam.name}</h3>
                 <p className="text-slate-300 text-lg mb-2">בחרו משבצת פנויה.</p>
                 {!freePlay && activeMacro.r !== -1 && (
                   <p className="text-yellow-400 font-bold bg-yellow-400/10 px-4 py-2 rounded-full border border-yellow-400/30">
@@ -254,9 +354,9 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
               
               <div className={`w-24 h-24 rounded-2xl border-4 border-dashed transition-all duration-500 flex items-center justify-center
                 ${previewCell ? 'border-transparent' : 'border-slate-600 animate-pulse'}`}
-                   style={previewCell ? { backgroundColor: currentGroup.color } : {}}>
+                   style={previewCell ? { backgroundColor: currentTeam.color } : {}}>
                 <span className={`text-6xl font-black ${previewCell ? 'text-white drop-shadow-md' : 'text-slate-600'}`}>
-                  {previewCell ? currentGroup.symbol : '?'}
+                  {previewCell ? currentTeam.symbol : '?'}
                 </span>
               </div>
 
@@ -268,14 +368,21 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
                     ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:scale-105 hover:shadow-[0_0_20px_rgba(245,158,11,0.5)] text-white cursor-pointer' 
                     : 'bg-white/5 text-slate-500 cursor-not-allowed border border-white/5'}`}
               >
-                <HelpCircle size={24} /> אשר מיקום והצג שאלה
+                <HelpCircle size={24} /> אשר מיקום והגרל תלמידים
               </button>
             </div>
           )}
 
           {gameState === 'QUESTION' && currentQuestion && (
             <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-500">
-              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-4 border border-white/10 shadow-inner">
+              <div className="bg-purple-900/40 border border-purple-500/30 rounded-2xl p-4 mb-3 text-center shadow-inner">
+                <p className="text-xs text-purple-300 font-bold mb-1">🎯 התלמידים שנבחרו לענות:</p>
+                <p className="text-xl font-black text-yellow-300 tracking-wide drop-shadow-sm">
+                  {selectedStudents.length > 0 ? selectedStudents.map(s => s.name).join(' ⚔️ ') : 'טוען תלמיד...'}
+                </p>
+              </div>
+
+              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-3 border border-white/10 shadow-inner">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Timer size={20} />
                   <span className="font-medium text-lg">זמן נותר:</span>
@@ -285,19 +392,13 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-6 flex flex-col justify-center shadow-lg mb-4">
-                <p className="text-2xl font-bold text-blue-50 text-center leading-relaxed">
-                  {currentQuestion.q}
-                </p>
+              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-3 md:p-4 flex flex-col justify-center shadow-lg mb-3">
+                <p className="text-base sm:text-lg font-semibold text-blue-50 text-center leading-snug break-words">{currentQuestion.q}</p>
               </div>
 
-              <div className={`shrink-0 h-[80px] rounded-2xl flex items-center justify-center p-4 mb-4 transition-all duration-500 border-2 
+              <div className={`shrink-0 h-[70px] rounded-2xl flex items-center justify-center p-3 mb-3 transition-all duration-500 border-2 
                   ${showSolution ? 'bg-amber-500/20 border-amber-500/50' : 'bg-transparent border-transparent'}`}>
-                {showSolution && (
-                  <p className="text-xl font-black text-amber-400 text-center animate-in slide-in-from-bottom-2">
-                    פתרון: {currentQuestion.a}
-                  </p>
-                )}
+                {showSolution && <p className="text-xl font-black text-amber-400 text-center animate-in slide-in-from-bottom-2">פתרון: {currentQuestion.a}</p>}
               </div>
 
               <div className="shrink-0 grid grid-cols-2 gap-3 mt-auto">
@@ -327,7 +428,6 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
 
       <div className="flex-1 min-w-0 h-full flex items-center justify-center p-4 md:p-12 relative z-10">
         
-        {/* הגריד המרכזי שופר והוספתי לו קיבוע של 3 שורות ו-3 עמודות */}
         <div className="w-full h-full max-h-[85vh] max-w-[85vh] bg-[#E91E63]/20 rounded-3xl p-3 md:p-4 shadow-[0_20px_50px_rgba(0,0,0,0.8)] border-4 border-pink-500/50"
              style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gridTemplateRows: 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
           
@@ -339,6 +439,7 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
                                     macroCell.state === 0;
 
               const justWon = newlyWonMacros.includes(`${mR}-${mC}`);
+              const winnerTeam = teams.find(t => t.internalId === macroCell.state);
               
               return (
                 <div key={`macro-${mR}-${mC}`} className={`relative bg-[#1A0B2E] rounded-xl overflow-hidden transition-all duration-300 border-2 flex items-center justify-center w-full h-full
@@ -347,13 +448,12 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
                   {macroCell.state !== 0 ? (
                     <span className={`text-[80px] md:text-[120px] font-black drop-shadow-2xl select-none`}
                           style={{ 
-                            color: macroCell.state === 1 ? mockGroups[0].color : macroCell.state === 2 ? mockGroups[1].color : '#64748b',
+                            color: winnerTeam ? winnerTeam.color : '#64748b',
                             animation: justWon ? 'stampPop 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards' : 'none'
                           }}>
-                      {macroCell.state === 1 ? 'X' : macroCell.state === 2 ? 'O' : '-'}
+                      {winnerTeam ? winnerTeam.symbol : '-'}
                     </span>
                   ) : (
-                    /* הגריד הפנימי גם קיבל הגדרת שורות קשיחה */
                     <div className="w-full h-full p-2 bg-[#130627]" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gridTemplateRows: 'repeat(3, minmax(0, 1fr))', gap: '6px' }}>
                       {macroCell.microCells.map((microRow, miR) => 
                         microRow.map((micro, miC) => {
@@ -365,12 +465,15 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
                           let borderClass = "border-2 border-[#4A3076]"; 
                           
                           if (micro.state > 0) {
-                            content = micro.state === 1 ? "X" : "O";
-                            textColor = micro.state === 1 ? mockGroups[0].color : mockGroups[1].color;
-                            borderClass = `border-2 border-[${textColor}]/30`;
-                          } else if (isPreview) {
-                            content = currentGroup.symbol;
-                            textColor = currentGroup.color;
+                            const microOwner = teams.find(t => t.internalId === micro.state);
+                            if (microOwner) {
+                                content = microOwner.symbol;
+                                textColor = microOwner.color;
+                                borderClass = `border-2 border-[${textColor}]/30`;
+                            }
+                          } else if (isPreview && currentTeam) {
+                            content = currentTeam.symbol;
+                            textColor = currentTeam.color;
                             bg = "bg-[#4B0082]/80 animate-pulse";
                             borderClass = `border-2 border-[${textColor}]`;
                           }
@@ -379,7 +482,6 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
                             <button
                               key={`micro-${miR}-${miC}`}
                               onClick={() => handleCellClick(mR, mC, miR, miC)}
-                              /* הוספתי לכאן w-full h-full כדי להכריח את הכפתור למלא את המשבצת ולא להימתח */
                               className={`w-full h-full flex items-center justify-center rounded-lg transition-all text-3xl md:text-4xl font-black ${bg} ${borderClass} hover:bg-[#3D256A] hover:border-white/40 cursor-pointer shadow-inner`}
                               style={{ color: textColor }}
                             >
@@ -396,22 +498,22 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
           )}
         </div>
 
-        {gameState === 'GAME_OVER' && (
+        {gameState === 'GAME_OVER' && currentTeam && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md overflow-hidden">
-            <div className="absolute inset-0" style={{ backgroundColor: `${currentGroup.color}20` }} />
+            <div className="absolute inset-0" style={{ backgroundColor: `${currentTeam.color}20` }} />
             
             {[...Array(40)].map((_, i) => (
               <div key={i} className="absolute animate-bounce" style={{
                 left: `${Math.random() * 100}%`, top: `-10%`,
                 animationDuration: `${2 + Math.random() * 2}s`,
                 animationDelay: `${Math.random() * 2}s`,
-                backgroundColor: currentGroup.color, width: '16px', height: '16px', borderRadius: '50%'
+                backgroundColor: currentTeam.color, width: '16px', height: '16px', borderRadius: '50%'
               }} />
             ))}
 
-            <div className="relative animate-[spin_10s_linear_infinite] p-1.5 rounded-[42px]" style={{ background: `linear-gradient(45deg, ${currentGroup.color}, transparent, ${currentGroup.color})` }}>
+            <div className="relative animate-[spin_10s_linear_infinite] p-1.5 rounded-[42px]" style={{ background: `linear-gradient(45deg, ${currentTeam.color}, transparent, ${currentTeam.color})` }}>
               <div className="bg-slate-900/90 border border-white/10 rounded-[40px] p-16 flex flex-col items-center shadow-2xl animate-in zoom-in-75 duration-700"
-                   style={{ boxShadow: `0 0 100px ${currentGroup.glow}` }}>
+                   style={{ boxShadow: `0 0 100px ${currentTeam.glow}` }}>
                 
                 <div className="relative mb-8">
                   <div className="absolute inset-0 bg-yellow-400 blur-3xl opacity-30 animate-pulse" />
@@ -422,7 +524,7 @@ export default function UltimateTicTacToeGame({ onBackToMenu }) {
                 <h2 className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 to-amber-500 mb-6 drop-shadow-lg">
                   ניצחון!
                 </h2>
-                <p className="text-5xl font-black mb-4 tracking-wide" style={{ color: currentGroup.color }}>{currentGroup.name}</p>
+                <p className="text-5xl font-black mb-4 tracking-wide" style={{ color: currentTeam.color }}>{currentTeam.name}</p>
                 <p className="text-2xl text-slate-300 mb-12 font-medium">כבשה את הלוח הגדול!</p>
                 
                 <button 

@@ -1,37 +1,88 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Settings, Play, CheckCircle2, XCircle, RefreshCcw, HelpCircle, ArrowRight, Trophy, Gamepad2, Timer, Sparkles, Hexagon, X, RotateCcw, AlertTriangle } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
 
-// === נתוני דמה למשחק ===
-const mockGroups = [
-  { id: 1, name: "קבוצה 1 (אדום)", color: "#E94560", goal: "לחבר עליון ותחתון", glow: "rgba(233, 69, 96, 0.6)" },
-  { id: 2, name: "קבוצה 2 (כחול)", color: "#00BCD4", goal: "לחבר ימין ושמאל", glow: "rgba(0, 188, 212, 0.6)" }
-];
-
-const mockQuestions = [
-  { id: 1, q: "מהו הפתרון למשוואה 2x + 5 = 15?", a: "x = 5" },
-  { id: 2, q: "באיזו שנה הוקמה מדינת ישראל?", a: "1948" },
-  { id: 3, q: "מהי עיר הבירה של יפן?", a: "טוקיו" },
-  { id: 4, q: "כמה צלעות יש למשושה?", a: "6" },
-  { id: 5, q: "מי כתב את המלט?", a: "וויליאם שייקספיר" }
-];
-
-export default function HexGame({ onBackToMenu }) {
-  // === State - ניהול מצב ===
+export default function HexGame({ onBackToMenu, selectedBank, session }) {
+  // === State - ניהול מצב משחק ===
   const [gridSize, setGridSize] = useState(6);
   const [timerDuration, setTimerDuration] = useState(30);
   const [gameState, setGameState] = useState('WAITING_START'); 
-  const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
+  const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+  const [isLoadingData, setIsLoadingData] = useState(true);
+  
   const [hexes, setHexes] = useState({}); 
   const [previewHex, setPreviewHex] = useState(null); 
   const [timeLeft, setTimeLeft] = useState(30);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [showSolution, setShowSolution] = useState(false);
   const [winningPath, setWinningPath] = useState([]);
-  const [scores, setScores] = useState({ 1: 0, 2: 0 });
+  
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
-  const currentGroup = mockGroups[currentGroupIndex];
+  // === State - נתונים מ-Supabase ===
+  const [questions, setQuestions] = useState([]); 
+  const [students, setStudents] = useState([]);
+  const [teams, setTeams] = useState([]); 
+  const [scores, setScores] = useState({});
+  const [studentPools, setStudentPools] = useState({}); 
+  const [selectedStudents, setSelectedStudents] = useState([]); 
+
+  const currentTeam = teams[currentTeamIndex];
+
+  // === משיכת נתונים ראשונית ===
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingData(true);
+      if (!session?.user?.id || !selectedBank) return;
+
+      const { data: qData } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('topic_id', selectedBank)
+        .eq('teacher_id', session.user.id);
+      setQuestions(qData || []);
+
+      const { data: sData } = await supabase
+        .from('students')
+        .select('*')
+        .eq('teacher_id', session.user.id)
+        .eq('is_playing', true);
+      
+      const activeStudents = sData || [];
+      setStudents(activeStudents);
+
+      const uniqueTeamNames = [...new Set(activeStudents.map(s => s.team || 'קבוצה כללית'))];
+      const teamNamesToUse = uniqueTeamNames.slice(0, 2);
+      
+      const dynamicTeams = teamNamesToUse.map((name, index) => ({
+        internalId: index + 1, // 1 או 2
+        id: name,
+        name: name,
+        color: index === 0 ? "#E94560" : "#00BCD4", // הצבעים המקוריים שלך
+        goal: index === 0 ? "לחבר עליון ותחתון" : "לחבר ימין ושמאל",
+        glow: index === 0 ? "rgba(233, 69, 96, 0.6)" : "rgba(0, 188, 212, 0.6)"
+      }));
+      
+      setTeams(dynamicTeams);
+
+      const initialScores = {};
+      const initialPools = {};
+      dynamicTeams.forEach(t => {
+        initialScores[t.id] = 0;
+        initialPools[t.id] = activeStudents.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+      });
+      setScores(initialScores);
+      setStudentPools(initialPools);
+
+      if (dynamicTeams.length > 0) {
+        setCurrentTeamIndex(Math.floor(Math.random() * dynamicTeams.length));
+      }
+      setIsLoadingData(false);
+    };
+
+    fetchData();
+  }, [session, selectedBank]);
 
   // === טיימר ===
   useEffect(() => {
@@ -44,7 +95,7 @@ export default function HexGame({ onBackToMenu }) {
     return () => clearInterval(timer);
   }, [gameState, timeLeft, showSolution]);
 
-  // === מתמטיקה של משושים (Hex Math) ===
+  // === מתמטיקה של משושים (Hex Math המקורית שלך) ===
   const hexRadius = 28;
   const hexWidth = Math.sqrt(3) * hexRadius;
   const hexHeight = 2 * hexRadius;
@@ -71,7 +122,7 @@ export default function HexGame({ onBackToMenu }) {
     return points.join(" ");
   }, [getHexVert]);
 
-  // חישוב Bounding Box מושלם כדי שה-SVG יהיה ממורכז תמיד בלי חיתוכים
+  // חישוב Bounding Box מושלם כדי שה-SVG יהיה ממורכז תמיד בלי חיתוכים (מקורי שלך)
   const svgViewBox = useMemo(() => {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (let r = 0; r < gridSize; r++) {
@@ -90,21 +141,71 @@ export default function HexGame({ onBackToMenu }) {
 
   // === לוגיקת משחק ===
   const startGame = () => {
+    if (teams.length < 2) {
+      alert("משחק הקס דורש בדיוק 2 קבוצות פעילות! אנא חלק את התלמידים ל-2 קבוצות בפאנל הניהול.");
+      return;
+    }
+    setHexes({});
+    setWinningPath([]);
+    
+    const freshScores = {};
+    const freshPools = {};
+    teams.forEach(t => {
+      freshScores[t.id] = 0;
+      freshPools[t.id] = students.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+    });
+    setScores(freshScores);
+    setStudentPools(freshPools);
+
     setGameState('WAITING_HEX');
     setPreviewHex(null);
-    setCurrentGroupIndex(Math.floor(Math.random() * 2));
+    setCurrentTeamIndex(Math.floor(Math.random() * teams.length));
   };
 
   const nextTurn = () => {
-    setCurrentGroupIndex(prev => (prev + 1) % 2);
+    if (teams.length === 0) return;
+    setCurrentTeamIndex(prev => (prev + 1) % teams.length);
     setGameState('WAITING_HEX');
     setPreviewHex(null);
     setShowSolution(false);
+    setSelectedStudents([]);
   };
 
   const loadQuestion = () => {
-    const q = mockQuestions[Math.floor(Math.random() * mockQuestions.length)];
-    setCurrentQuestion(q);
+    if (questions.length === 0) {
+      alert("אין שאלות במאגר זה! אנא הוסף שאלות בפאנל הניהול.");
+      return;
+    }
+    if (!currentTeam) return;
+
+    const teamStudents = students.filter(s => (s.team || 'קבוצה כללית') === currentTeam.id);
+    if (teamStudents.length === 0) return;
+
+    let currentPool = studentPools[currentTeam.id] || [];
+    if (currentPool.length < 2) {
+      currentPool = teamStudents.map(s => s.id);
+    }
+
+    let chosenIds = [];
+    const poolCopy = [...currentPool];
+    
+    for (let i = 0; i < 2; i++) {
+      if (poolCopy.length === 0) break;
+      const randomIndex = Math.floor(Math.random() * poolCopy.length);
+      chosenIds.push(poolCopy.splice(randomIndex, 1)[0]);
+    }
+
+    const chosenObjects = teamStudents.filter(s => chosenIds.includes(s.id));
+    setSelectedStudents(chosenObjects);
+
+    setStudentPools(prev => ({
+      ...prev,
+      [currentTeam.id]: poolCopy
+    }));
+
+    const q = questions[Math.floor(Math.random() * questions.length)];
+    setCurrentQuestion({ q: q.question_text, a: q.answer });
+    
     setTimeLeft(timerDuration);
     setShowSolution(false);
     setGameState('QUESTION');
@@ -117,8 +218,8 @@ export default function HexGame({ onBackToMenu }) {
     setPreviewHex({ r, c });
   };
 
-  const checkWin = useCallback((currentHexes, groupInfo) => {
-    const groupIndex = mockGroups.findIndex(g => g.id === groupInfo.id);
+  const checkWin = useCallback((currentHexes, teamInfo) => {
+    const isTopBottom = teamInfo.internalId === 1; // קבוצה 1 מנסה לחבר עליון לתחתון
     const queue = [];
     const cameFrom = new Map();
     const visited = new Set();
@@ -126,11 +227,11 @@ export default function HexGame({ onBackToMenu }) {
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize; c++) {
         const key = `${r},${c}`;
-        if (currentHexes[key] === groupInfo.id) {
-          if (groupIndex === 0 && r === 0) {
+        if (currentHexes[key] === teamInfo.internalId) {
+          if (isTopBottom && r === 0) {
             queue.push({ r, c, key });
             visited.add(key);
-          } else if (groupIndex === 1 && c === 0) {
+          } else if (!isTopBottom && c === 0) {
             queue.push({ r, c, key });
             visited.add(key);
           }
@@ -143,8 +244,8 @@ export default function HexGame({ onBackToMenu }) {
     while (queue.length > 0) {
       const current = queue.shift();
 
-      if (groupIndex === 0 && current.r === gridSize - 1) return reconstructPath(cameFrom, current);
-      if (groupIndex === 1 && current.c === gridSize - 1) return reconstructPath(cameFrom, current);
+      if (isTopBottom && current.r === gridSize - 1) return reconstructPath(cameFrom, current);
+      if (!isTopBottom && current.c === gridSize - 1) return reconstructPath(cameFrom, current);
 
       for (const [dr, dc] of directions) {
         const nr = current.r + dr;
@@ -152,7 +253,7 @@ export default function HexGame({ onBackToMenu }) {
         const nKey = `${nr},${nc}`;
 
         if (nr >= 0 && nr < gridSize && nc >= 0 && nc < gridSize) {
-          if (currentHexes[nKey] === groupInfo.id && !visited.has(nKey)) {
+          if (currentHexes[nKey] === teamInfo.internalId && !visited.has(nKey)) {
             visited.add(nKey);
             cameFrom.set(nKey, current);
             queue.push({ r: nr, c: nc, key: nKey });
@@ -174,14 +275,14 @@ export default function HexGame({ onBackToMenu }) {
   };
 
   const handleAnswer = (isCorrect) => {
-    if (isCorrect && previewHex) {
+    if (isCorrect && previewHex && currentTeam) {
       const key = `${previewHex.r},${previewHex.c}`;
-      const newHexes = { ...hexes, [key]: currentGroup.id };
+      const newHexes = { ...hexes, [key]: currentTeam.internalId };
       setHexes(newHexes);
       
-      setScores(prev => ({ ...prev, [currentGroup.id]: prev[currentGroup.id] + 1 }));
+      setScores(prev => ({ ...prev, [currentTeam.id]: (prev[currentTeam.id] || 0) + 1 }));
 
-      const path = checkWin(newHexes, currentGroup);
+      const path = checkWin(newHexes, currentTeam);
       if (path) {
         setWinningPath(path);
         setGameState('GAME_OVER');
@@ -201,7 +302,6 @@ export default function HexGame({ onBackToMenu }) {
         setGameState('WAITING_START');
         setPreviewHex(null);
         setWinningPath([]);
-        setScores({ 1: 0, 2: 0 });
         setShowSettings(false);
         setConfirmDialog({ isOpen: false, message: '', onConfirm: null });
       }
@@ -220,8 +320,10 @@ export default function HexGame({ onBackToMenu }) {
     });
   };
 
-  // === ציור הלוח והמשושים ===
+  // === ציור הלוח והמשושים (מקורי שלך) ===
   const renderBorders = () => {
+    if (teams.length < 2) return null; // הגנה אם אין קבוצות עדיין
+    
     const topPoly = [];
     topPoly.push(getHexVert(0, 0, 4));
     for (let c = 0; c < gridSize; c++) {
@@ -254,10 +356,10 @@ export default function HexGame({ onBackToMenu }) {
 
     return (
       <g strokeWidth="6" strokeLinejoin="round" strokeLinecap="round" fill="none">
-        <polyline points={toSvgPoints(topPoly)} stroke={mockGroups[0].color} className="drop-shadow-[0_0_8px_rgba(233,69,96,0.8)]" />
-        <polyline points={toSvgPoints(bottomPoly)} stroke={mockGroups[0].color} className="drop-shadow-[0_0_8px_rgba(233,69,96,0.8)]" />
-        <polyline points={toSvgPoints(leftPoly)} stroke={mockGroups[1].color} className="drop-shadow-[0_0_8px_rgba(0,188,212,0.8)]" />
-        <polyline points={toSvgPoints(rightPoly)} stroke={mockGroups[1].color} className="drop-shadow-[0_0_8px_rgba(0,188,212,0.8)]" />
+        <polyline points={toSvgPoints(topPoly)} stroke={teams[0].color} className="drop-shadow-[0_0_8px_rgba(233,69,96,0.8)]" />
+        <polyline points={toSvgPoints(bottomPoly)} stroke={teams[0].color} className="drop-shadow-[0_0_8px_rgba(233,69,96,0.8)]" />
+        <polyline points={toSvgPoints(leftPoly)} stroke={teams[1].color} className="drop-shadow-[0_0_8px_rgba(0,188,212,0.8)]" />
+        <polyline points={toSvgPoints(rightPoly)} stroke={teams[1].color} className="drop-shadow-[0_0_8px_rgba(0,188,212,0.8)]" />
       </g>
     );
   };
@@ -268,7 +370,7 @@ export default function HexGame({ onBackToMenu }) {
       for (let c = 0; c < gridSize; c++) {
         const key = `${r},${c}`;
         const isCaptured = hexes[key] !== undefined;
-        const owner = isCaptured ? mockGroups.find(g => g.id === hexes[key]) : null;
+        const owner = isCaptured ? teams.find(t => t.internalId === hexes[key]) : null;
         const isPreview = previewHex?.r === r && previewHex?.c === c;
         const isWinning = winningPath.includes(key);
         const { x, y } = getHexCenter(r, c);
@@ -277,27 +379,27 @@ export default function HexGame({ onBackToMenu }) {
         let strokeColor = "#2c3e50";
         let strokeWidth = 2;
 
-        if (isWinning) {
+        if (isWinning && owner) {
           fillColor = owner.color;
           strokeColor = "#FFD700"; 
           strokeWidth = 4;
-        } else if (isCaptured) {
+        } else if (isCaptured && owner) {
           fillColor = owner.color;
           strokeColor = owner.color;
-        } else if (isPreview) {
-          fillColor = currentGroup.color;
-          strokeColor = currentGroup.color;
+        } else if (isPreview && currentTeam) {
+          fillColor = currentTeam.color;
+          strokeColor = currentTeam.color;
         }
 
         polygons.push(
           <g key={key} onClick={() => handleHexClick(r, c)} className="cursor-pointer group">
             <defs>
               <radialGradient id={`grad-${key}`}>
-                <stop offset="0%" stopColor={isCaptured ? owner.color : "#1e293b"} stopOpacity="0.9" />
-                <stop offset="100%" stopColor={isCaptured ? owner.color : "#0f172a"} stopOpacity="1" />
+                <stop offset="0%" stopColor={isCaptured && owner ? owner.color : "#1e293b"} stopOpacity="0.9" />
+                <stop offset="100%" stopColor={isCaptured && owner ? owner.color : "#0f172a"} stopOpacity="1" />
               </radialGradient>
             </defs>
-            <polygon
+            <polygon 
               points={getHexPointsString(r, c)}
               fill={`url(#grad-${key})`}
               stroke={strokeColor}
@@ -336,7 +438,7 @@ export default function HexGame({ onBackToMenu }) {
 
       {/* =========================================================================
           פאנל שליטה ימני - מוגדר ברוחב קבוע
-          ========================================================================= */}
+         ========================================================================= */}
       <div className="w-full md:w-[420px] lg:w-[480px] shrink-0 bg-slate-900/80 backdrop-blur-2xl border-l border-white/5 p-6 flex flex-col z-20 shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-y-auto">
         
         {/* כותרת עליונה */}
@@ -354,8 +456,9 @@ export default function HexGame({ onBackToMenu }) {
 
         {/* תצוגת קבוצות וניקוד */}
         <div className="flex gap-4 mb-6 shrink-0">
-          {mockGroups.map((grp) => {
-            const isActive = currentGroupIndex === mockGroups.indexOf(grp) && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
+          {teams.length < 2 && <p className="text-center w-full text-rose-400 text-sm font-bold">המשחק דורש 2 קבוצות פעילות!</p>}
+          {teams.map((grp, index) => {
+            const isActive = currentTeamIndex === index && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
             return (
               <div 
                 key={grp.id} 
@@ -368,7 +471,7 @@ export default function HexGame({ onBackToMenu }) {
                 )}
                 <span className="text-sm font-bold text-center mb-1 z-10">{grp.name}</span>
                 <span className="text-xs text-white/70 mb-2 z-10 font-medium tracking-wide">{grp.goal}</span>
-                <span className="text-4xl font-black z-10 drop-shadow-md">{scores[grp.id]}</span>
+                <span className="text-4xl font-black z-10 drop-shadow-md">{scores[grp.id] || 0}</span>
               </div>
             );
           })}
@@ -382,20 +485,25 @@ export default function HexGame({ onBackToMenu }) {
               <div className="w-24 h-24 rounded-full bg-blue-500/10 flex items-center justify-center">
                 <Gamepad2 size={48} className="text-blue-400" />
               </div>
-              <p className="text-lg text-slate-300 text-center font-medium px-4">לחץ על 'התחל' כדי להגריל איזו קבוצה מתחילה את התחרות.</p>
+              <p className="text-lg text-slate-300 text-center font-medium px-4">
+                {isLoadingData ? 'מתחבר למסד הנתונים ומושך נתונים...' : `הלוח מוכן עם ${questions.length} שאלות ו-${students.length} תלמידים פעילים.`}
+              </p>
               <button 
                 onClick={startGame}
-                className="mt-4 w-full py-4 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 font-black text-xl flex items-center justify-center gap-3 hover:scale-105 transition-all shadow-[0_0_20px_rgba(79,70,229,0.4)]"
+                disabled={isLoadingData || teams.length < 2}
+                className={`mt-4 w-full py-4 rounded-xl font-black text-xl flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(79,70,229,0.4)]
+                  ${(isLoadingData || teams.length < 2) ? 'bg-slate-700 text-slate-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-105 text-white'}`}
               >
-                <Play fill="currentColor" size={24} /> התחל משחק
+                {isLoadingData ? <RefreshCcw className="animate-spin" size={24} /> : <Play fill="currentColor" size={24} />} 
+                {isLoadingData ? 'טוען...' : 'התחל משחק'}
               </button>
             </div>
           )}
 
-          {gameState === 'WAITING_HEX' && (
+          {gameState === 'WAITING_HEX' && currentTeam && (
             <div className="h-full flex flex-col items-center justify-center gap-8 animate-in fade-in slide-in-from-right-8 duration-500">
               <div className="text-center">
-                <h3 className="text-2xl font-black mb-2" style={{ color: currentGroup.color }}>תור {currentGroup.name}</h3>
+                <h3 className="text-2xl font-black mb-2" style={{ color: currentTeam.color }}>תור {currentTeam.name}</h3>
                 <p className="text-slate-300 text-lg">סמנו משושה אסטרטגי על הלוח.</p>
               </div>
               
@@ -419,7 +527,14 @@ export default function HexGame({ onBackToMenu }) {
           {gameState === 'QUESTION' && currentQuestion && (
             <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-500">
               
-              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-4 border border-white/10 shadow-inner">
+              <div className="bg-purple-900/40 border border-purple-500/30 rounded-2xl p-4 mb-3 text-center shadow-inner">
+                <p className="text-xs text-purple-300 font-bold mb-1">🎯 התלמידים שנבחרו לענות:</p>
+                <p className="text-xl font-black text-yellow-300 tracking-wide drop-shadow-sm">
+                  {selectedStudents.length > 0 ? selectedStudents.map(s => s.name).join(' ⚔️ ') : 'טוען תלמיד...'}
+                </p>
+              </div>
+
+              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-3 border border-white/10 shadow-inner">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Timer size={20} />
                   <span className="font-medium text-lg">זמן נותר:</span>
@@ -429,16 +544,16 @@ export default function HexGame({ onBackToMenu }) {
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-6 flex flex-col justify-center shadow-lg mb-4">
-                <p className="text-2xl font-bold text-blue-50 text-center leading-relaxed">
+              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-3 md:p-4 flex flex-col justify-center shadow-lg mb-3">
+                <p className="text-base sm:text-lg font-semibold text-blue-50 text-center leading-snug break-words">
                   {currentQuestion.q}
                 </p>
               </div>
 
-              <div className={`shrink-0 h-[80px] rounded-2xl flex items-center justify-center p-4 mb-4 transition-all duration-500 border-2 
+              <div className={`shrink-0 h-[70px] rounded-2xl flex items-center justify-center p-3 mb-3 transition-all duration-500 border-2 
                   ${showSolution ? 'bg-amber-500/20 border-amber-500/50' : 'bg-transparent border-transparent'}`}>
                 {showSolution && (
-                  <p className="text-xl font-black text-amber-400 text-center animate-in slide-in-from-bottom-2">
+                  <p className="text-lg font-black text-amber-400 text-center animate-in slide-in-from-bottom-2">
                     פתרון: {currentQuestion.a}
                   </p>
                 )}
@@ -472,11 +587,11 @@ export default function HexGame({ onBackToMenu }) {
       </div>
 
       {/* =========================================================================
-          אזור הלוח (Main Board)
-          ========================================================================= */}
+          אזור הלוח (Main Board) - נשאר 100% נאמן לעיצוב שלך
+         ========================================================================= */}
       <div className="flex-1 min-w-0 h-full flex items-center justify-center p-4 md:p-12 relative z-10">
         
-        {/* קונטיינר ה-SVG */}
+        {/* קונטיינר ה-SVG המקורי */}
         <div className="w-full h-full max-h-[85vh] flex items-center justify-center">
            <svg viewBox={svgViewBox} className="w-full h-full drop-shadow-[0_20px_50px_rgba(0,0,0,0.5)] overflow-visible">
              {/* ציור קווי הגבול המדויקים */}
@@ -487,22 +602,22 @@ export default function HexGame({ onBackToMenu }) {
         </div>
 
         {/* מסך ניצחון מרהיב (Overlay) */}
-        {gameState === 'GAME_OVER' && (
+        {gameState === 'GAME_OVER' && currentTeam && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md overflow-hidden">
-            <div className="absolute inset-0" style={{ backgroundColor: `${currentGroup.color}20` }} />
+            <div className="absolute inset-0" style={{ backgroundColor: `${currentTeam.color}20` }} />
             
             {[...Array(40)].map((_, i) => (
               <div key={i} className="absolute animate-bounce" style={{
                 left: `${Math.random() * 100}%`, top: `-10%`,
                 animationDuration: `${2 + Math.random() * 2}s`,
                 animationDelay: `${Math.random() * 2}s`,
-                backgroundColor: currentGroup.color, width: '12px', height: '12px', borderRadius: '50%'
+                backgroundColor: currentTeam.color, width: '12px', height: '12px', borderRadius: '50%'
               }} />
             ))}
 
-            <div className="relative animate-[spin_10s_linear_infinite] p-1.5 rounded-[42px]" style={{ background: `linear-gradient(45deg, ${currentGroup.color}, transparent, ${currentGroup.color})` }}>
+            <div className="relative animate-[spin_10s_linear_infinite] p-1.5 rounded-[42px]" style={{ background: `linear-gradient(45deg, ${currentTeam.color}, transparent, ${currentTeam.color})` }}>
               <div className="bg-slate-900/90 border border-white/10 rounded-[40px] p-16 flex flex-col items-center shadow-2xl animate-in zoom-in-75 duration-700"
-                   style={{ boxShadow: `0 0 100px ${currentGroup.glow}` }}>
+                   style={{ boxShadow: `0 0 100px ${currentTeam.glow}` }}>
                 
                 <div className="relative mb-8">
                   <div className="absolute inset-0 bg-yellow-400 blur-3xl opacity-30 animate-pulse" />
@@ -513,12 +628,12 @@ export default function HexGame({ onBackToMenu }) {
                 <h2 className="text-7xl font-black text-transparent bg-clip-text bg-gradient-to-b from-yellow-200 to-amber-500 mb-6 drop-shadow-lg">
                   ניצחון!
                 </h2>
-                <p className="text-5xl font-black mb-4 tracking-wide" style={{ color: currentGroup.color }}>{currentGroup.name}</p>
+                <p className="text-5xl font-black mb-4 tracking-wide" style={{ color: currentTeam.color }}>{currentTeam.name}</p>
                 <p className="text-2xl text-slate-300 mb-12 font-medium">יצרו רצף מנצח וכבשו את הלוח!</p>
                 
                 <button 
                   onClick={() => {
-                    setHexes({}); setGameState('WAITING_START'); setWinningPath([]); setScores({1:0, 2:0});
+                    setHexes({}); setGameState('WAITING_START'); setWinningPath([]); 
                   }}
                   className="px-12 py-5 rounded-full font-black text-2xl bg-gradient-to-r from-amber-500 to-orange-600 hover:scale-110 transition-transform shadow-[0_0_30px_rgba(245,158,11,0.5)] text-white"
                 >
@@ -573,14 +688,14 @@ export default function HexGame({ onBackToMenu }) {
             <AlertTriangle size={64} className="text-rose-500 mx-auto mb-6" />
             <h2 className="text-2xl font-bold mb-8 leading-relaxed text-white">{confirmDialog.message}</h2>
             <div className="flex gap-4">
-              <button
-                onClick={() => confirmDialog.onConfirm()}
+              <button 
+                onClick={() => confirmDialog.onConfirm()} 
                 className="flex-1 py-4 rounded-xl bg-rose-600 hover:bg-rose-500 font-bold text-lg transition-all shadow-[0_0_15px_rgba(225,29,72,0.4)] text-white"
               >
                 כן, אני בטוח
               </button>
-              <button
-                onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: null })}
+              <button 
+                onClick={() => setConfirmDialog({ isOpen: false, message: '', onConfirm: null })} 
                 className="flex-1 py-4 rounded-xl bg-slate-700 hover:bg-slate-600 font-bold text-lg transition-all text-white"
               >
                 ביטול

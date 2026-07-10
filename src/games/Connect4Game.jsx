@@ -1,42 +1,91 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Settings, Play, CheckCircle2, XCircle, RefreshCcw, HelpCircle, ArrowRight, Trophy, Gamepad2, Timer, Sparkles, X, RotateCcw, AlertTriangle, AlignJustify } from 'lucide-react';
+import { supabase } from '../lib/supabaseClient';
 
-const mockGroups = [
-  { id: 1, name: "קבוצה 1 (אדום)", color: "#E94560", glow: "rgba(233, 69, 96, 0.6)" },
-  { id: 2, name: "קבוצה 2 (צהוב)", color: "#FFD700", glow: "rgba(255, 215, 0, 0.6)" }
-];
-
-const mockQuestions = [
-  { id: 1, q: "מהי בירת צרפת?", a: "פריז" },
-  { id: 2, q: "כמה שניות יש בשעה?", a: "3600" },
-  { id: 3, q: "מי גילה את כוח המשיכה?", a: "אייזק ניוטון" },
-  { id: 4, q: "מהו השורש הריבועי של 144?", a: "12" },
-  { id: 5, q: "איזה יסוד מסומן באות O?", a: "חמצן" }
-];
-
-export default function Connect4Game({ onBackToMenu }) {
+export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
   const [rows, setRows] = useState(6);
   const [cols, setCols] = useState(7);
   const [timerDuration, setTimerDuration] = useState(30);
   
   const [gameState, setGameState] = useState('WAITING_START'); 
-  const [currentGroupIndex, setCurrentGroupIndex] = useState(0);
+  const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+  const [isLoadingData, setIsLoadingData] = useState(true); // <--- מנעול הטעינה שלנו
   
   const [board, setBoard] = useState(Array(6).fill(null).map(() => Array(7).fill(0)));
-  
   const [previewMove, setPreviewMove] = useState(null); 
   const [winningCells, setWinningCells] = useState([]); 
-  const [lastDrop, setLastDrop] = useState(null); // שמירת הדיסקית האחרונה שנפלה בשביל האנימציה
+  const [lastDrop, setLastDrop] = useState(null);
 
   const [timeLeft, setTimeLeft] = useState(30);
   const [currentQuestion, setCurrentQuestion] = useState(null);
   const [showSolution, setShowSolution] = useState(false);
-  const [scores, setScores] = useState({ 1: 0, 2: 0 });
   const [showSettings, setShowSettings] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, message: '', onConfirm: null });
 
-  const currentGroup = mockGroups[currentGroupIndex];
+  // נתונים חיים מ-Supabase
+  const [questions, setQuestions] = useState([]); 
+  const [students, setStudents] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [scores, setScores] = useState({});
+  const [studentPools, setStudentPools] = useState({}); 
+  const [selectedStudents, setSelectedStudents] = useState([]); 
 
+  const currentTeam = teams[currentTeamIndex];
+
+  // 1. טעינת נתונים חכמה
+  useEffect(() => {
+    const fetchData = async () => {
+      setIsLoadingData(true); // נועל את כפתור ה-Play
+      if (!session?.user?.id || !selectedBank) return;
+
+      const { data: qData } = await supabase
+        .from('questions')
+        .select('*')
+        .eq('topic_id', selectedBank)
+        .eq('teacher_id', session.user.id);
+      setQuestions(qData || []);
+
+      const { data: sData } = await supabase
+        .from('students')
+        .select('*')
+        .eq('teacher_id', session.user.id)
+        .eq('is_playing', true);
+      
+      const activeStudents = sData || [];
+      setStudents(activeStudents);
+
+      const uniqueTeamNames = [...new Set(activeStudents.map(s => s.team || 'קבוצה כללית'))];
+      const beautifulColors = ["#E94560", "#FFD700", "#00BCD4", "#40FF5A", "#7B2CBF", "#F15BB5"];
+      
+      const dynamicTeams = uniqueTeamNames.map((name, index) => ({
+        id: name,
+        name: name,
+        color: beautifulColors[index % beautifulColors.length],
+        glow: `rgba(255,255,255,0.2)`
+      }));
+      
+      setTeams(dynamicTeams);
+
+      const initialScores = {};
+      const initialPools = {};
+      dynamicTeams.forEach(t => {
+        initialScores[t.id] = 0;
+        initialPools[t.id] = activeStudents.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+      });
+      setScores(initialScores);
+      setStudentPools(initialPools);
+
+      if (dynamicTeams.length > 0) {
+        setCurrentTeamIndex(Math.floor(Math.random() * dynamicTeams.length));
+      }
+      
+      setIsLoadingData(false); // פותח את כפתור ה-Play אחרי שהכל סיים לטעון
+    };
+
+    fetchData();
+  }, [session, selectedBank]);
+
+  // טיימר שאלות
   useEffect(() => {
     let timer;
     if (gameState === 'QUESTION' && timeLeft > 0 && !showSolution) {
@@ -55,13 +104,27 @@ export default function Connect4Game({ onBackToMenu }) {
   }, [rows, cols]);
 
   const startGame = () => {
+    if (teams.length === 0) {
+      alert("לא נמצאו תלמידים פעילים! אנא הוסף תלמידים בפאנל הניהול וודא שהם מסומנים ב-V.");
+      return;
+    }
+
     setBoard(Array(rows).fill(null).map(() => Array(cols).fill(0)));
-    setScores({ 1: 0, 2: 0 });
+    
+    const freshScores = {};
+    const freshPools = {};
+    teams.forEach(t => {
+      freshScores[t.id] = 0;
+      freshPools[t.id] = students.filter(s => (s.team || 'קבוצה כללית') === t.id).map(s => s.id);
+    });
+    setScores(freshScores);
+    setStudentPools(freshPools);
+
     setGameState('WAITING_MOVE');
     setPreviewMove(null);
     setWinningCells([]);
     setLastDrop(null);
-    setCurrentGroupIndex(Math.floor(Math.random() * mockGroups.length));
+    setCurrentTeamIndex(Math.floor(Math.random() * teams.length));
   };
 
   const nextTurn = () => {
@@ -77,15 +140,52 @@ export default function Connect4Game({ onBackToMenu }) {
       return;
     }
 
-    setCurrentGroupIndex(prev => (prev + 1) % mockGroups.length);
+    setCurrentTeamIndex(prev => (prev + 1) % teams.length);
     setGameState('WAITING_MOVE');
     setPreviewMove(null);
     setShowSolution(false);
+    setSelectedStudents([]);
   };
 
   const loadQuestion = () => {
-    const q = mockQuestions[Math.floor(Math.random() * mockQuestions.length)];
-    setCurrentQuestion(q);
+    if (questions.length === 0) {
+      alert("אין שאלות במאגר זה! אנא הוסף שאלות בפאנל הניהול.");
+      return;
+    }
+    if (!currentTeam) return;
+
+    const teamStudents = students.filter(s => (s.team || 'קבוצה כללית') === currentTeam.id);
+    if (teamStudents.length === 0) {
+      alert(`אין תלמידים פעילים המשויכים לקבוצה: ${currentTeam.name}`);
+      return;
+    }
+
+    let currentPool = studentPools[currentTeam.id] || [];
+
+    if (currentPool.length < 2) {
+      currentPool = teamStudents.map(s => s.id);
+    }
+
+    let chosenIds = [];
+    const poolCopy = [...currentPool];
+    
+    for (let i = 0; i < 2; i++) {
+      if (poolCopy.length === 0) break;
+      const randomIndex = Math.floor(Math.random() * poolCopy.length);
+      chosenIds.push(poolCopy.splice(randomIndex, 1)[0]);
+    }
+
+    const chosenObjects = teamStudents.filter(s => chosenIds.includes(s.id));
+    setSelectedStudents(chosenObjects);
+
+    setStudentPools(prev => ({
+      ...prev,
+      [currentTeam.id]: poolCopy
+    }));
+
+    const randomQ = questions[Math.floor(Math.random() * questions.length)];
+    setCurrentQuestion({ q: randomQ.question_text, a: randomQ.answer });
+    
     setTimeLeft(timerDuration);
     setShowSolution(false);
     setGameState('QUESTION');
@@ -106,7 +206,7 @@ export default function Connect4Game({ onBackToMenu }) {
     }
   };
 
-  const checkForConnect4 = (boardState, r, c, groupIndex) => {
+  const checkForConnect4 = (boardState, r, c, teamId) => {
     const directions = [[0, 1], [1, 0], [1, 1], [1, -1]];
     
     for (const [dr, dc] of directions) {
@@ -114,7 +214,7 @@ export default function Connect4Game({ onBackToMenu }) {
       
       let currR = r + dr;
       let currC = c + dc;
-      while (currR >= 0 && currR < rows && currC >= 0 && currC < cols && boardState[currR][currC] === groupIndex) {
+      while (currR >= 0 && currR < rows && currC >= 0 && currC < cols && boardState[currR][currC] === teamId) {
         winningLine.push({ r: currR, c: currC });
         currR += dr;
         currC += dc;
@@ -122,7 +222,7 @@ export default function Connect4Game({ onBackToMenu }) {
       
       currR = r - dr;
       currC = c - dc;
-      while (currR >= 0 && currR < rows && currC >= 0 && currC < cols && boardState[currR][currC] === groupIndex) {
+      while (currR >= 0 && currR < rows && currC >= 0 && currC < cols && boardState[currR][currC] === teamId) {
         winningLine.push({ r: currR, c: currC });
         currR -= dr;
         currC -= dc;
@@ -136,21 +236,19 @@ export default function Connect4Game({ onBackToMenu }) {
   };
 
   const handleAnswer = (isCorrect) => {
-    if (isCorrect && previewMove) {
+    if (isCorrect && previewMove && currentTeam) {
       const { row, col } = previewMove;
       const newBoard = board.map(r => [...r]);
-      newBoard[row][col] = currentGroup.id;
+      newBoard[row][col] = currentTeam.id;
       setBoard(newBoard);
       
-      // הגדרת הנפילה בשביל הפיזיקה
       setLastDrop({ r: row, c: col });
 
-      const winningSequence = checkForConnect4(newBoard, row, col, currentGroup.id);
+      const winningSequence = checkForConnect4(newBoard, row, col, currentTeam.id);
       
       if (winningSequence) {
         setWinningCells(winningSequence);
-        setScores(prev => ({ ...prev, [currentGroup.id]: prev[currentGroup.id] + 1 }));
-        // ממתין קצת שהאנימציה תיפול לפני מסך הניצחון
+        setScores(prev => ({ ...prev, [currentTeam.id]: (prev[currentTeam.id] || 0) + 1 }));
         setTimeout(() => setGameState('GAME_OVER'), 1000); 
         return;
       }
@@ -185,9 +283,8 @@ export default function Connect4Game({ onBackToMenu }) {
     });
   };
 
-  const getWinner = () => currentGroup;
+  const getWinner = () => currentTeam || { name: 'אין מנצח', color: '#fff' };
 
-  // בניית "מכסה" החורים בדומה ל-WPF GeometryGroup
   const buildSVGPlate = useCallback(() => {
     let d = `M 0,0 H ${cols * 100} V ${rows * 100} H 0 Z `;
     for (let r = 0; r < rows; r++) {
@@ -195,7 +292,6 @@ export default function Connect4Game({ onBackToMenu }) {
         const cx = c * 100 + 50;
         const cy = r * 100 + 50;
         const radius = 42;
-        // מצייר עיגול נגדי כדי לחורר את המשטח
         d += `M ${cx},${cy - radius} a ${radius},${radius} 0 1,0 0,${radius * 2} a ${radius},${radius} 0 1,0 0,-${radius * 2} `;
       }
     }
@@ -205,7 +301,6 @@ export default function Connect4Game({ onBackToMenu }) {
   return (
     <div dir="rtl" className="h-screen w-full bg-[#001F3F] text-white font-sans flex flex-col md:flex-row overflow-hidden relative">
       
-      {/* הגדרת מנוע האנימציה - פיזיקת נפילה עם הקפצה */}
       <style>{`
         @keyframes connect4drop {
           0% { transform: translateY(var(--start-y)); animation-timing-function: ease-in; }
@@ -217,7 +312,6 @@ export default function Connect4Game({ onBackToMenu }) {
         }
       `}</style>
 
-      {/* רקע עמוק */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#1A1A2E] via-[#16213E] to-[#0F3460] opacity-80 pointer-events-none" />
 
       {/* פאנל שליטה */}
@@ -235,19 +329,21 @@ export default function Connect4Game({ onBackToMenu }) {
           </button>
         </div>
 
-        <div className="flex gap-4 mb-4 shrink-0">
-          {mockGroups.map((grp) => {
-            const isActive = currentGroupIndex === mockGroups.indexOf(grp) && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
+        {/* תצוגת הקבוצות */}
+        <div className="flex gap-4 mb-4 shrink-0 overflow-x-auto pb-2">
+          {teams.length === 0 && <p className="text-center w-full text-slate-500 text-sm">ממתין לטעינת נתונים...</p>}
+          {teams.map((grp, index) => {
+            const isActive = currentTeamIndex === index && gameState !== 'WAITING_START' && gameState !== 'GAME_OVER';
             return (
               <div 
                 key={grp.id} 
-                className={`relative flex-1 rounded-2xl p-4 flex flex-col items-center justify-center border-2 transition-all duration-500 overflow-hidden
+                className={`relative flex-1 min-w-[100px] rounded-2xl p-4 flex flex-col items-center justify-center border-2 transition-all duration-500 overflow-hidden
                   ${isActive ? 'border-white/50 scale-105' : 'border-white/5 bg-black/40 scale-100'}`}
                 style={{ backgroundColor: isActive ? grp.color : '' }}
               >
                 {isActive && <div className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none" />}
-                <span className="text-sm font-bold text-center mb-1 z-10 text-white drop-shadow-md">{grp.name}</span>
-                <span className="text-4xl font-black z-10 drop-shadow-md text-white">{scores[grp.id]}</span>
+                <span className="text-sm font-bold text-center mb-1 z-10 text-white drop-shadow-md break-all">{grp.name}</span>
+                <span className="text-4xl font-black z-10 drop-shadow-md text-white">{scores[grp.id] || 0}</span>
               </div>
             );
           })}
@@ -260,25 +356,30 @@ export default function Connect4Game({ onBackToMenu }) {
               <div className="w-24 h-24 rounded-full bg-orange-500/10 flex items-center justify-center">
                 <Gamepad2 size={48} className="text-orange-400" />
               </div>
-              <p className="text-lg text-slate-300 text-center font-medium px-4">לחץ על 'התחל' כדי להגריל מי מתחיל.</p>
+              <p className="text-lg text-slate-300 text-center font-medium px-4">
+                {isLoadingData ? 'מתחבר למסד הנתונים ומושך נתונים...' : `הלוח מוכן עם ${questions.length} שאלות ו-${students.length} תלמידים פעילים.`}
+              </p>
               <button 
                 onClick={startGame}
-                className="mt-4 w-full py-4 rounded-xl bg-gradient-to-r from-orange-500 to-red-600 font-black text-xl flex items-center justify-center gap-3 hover:scale-105 transition-all shadow-[0_0_20px_rgba(249,115,22,0.4)]"
+                disabled={isLoadingData}
+                className={`mt-4 w-full py-4 rounded-xl font-black text-xl flex items-center justify-center gap-3 transition-all shadow-[0_0_20px_rgba(249,115,22,0.4)]
+                  ${isLoadingData ? 'bg-slate-700 text-slate-400 cursor-not-allowed shadow-none' : 'bg-gradient-to-r from-orange-500 to-red-600 hover:scale-105 text-white'}`}
               >
-                <Play fill="currentColor" size={24} /> התחל משחק
+                {isLoadingData ? <RefreshCcw className="animate-spin" size={24} /> : <Play fill="currentColor" size={24} />} 
+                {isLoadingData ? 'טוען...' : 'התחל משחק'}
               </button>
             </div>
           )}
 
-          {gameState === 'WAITING_MOVE' && (
+          {gameState === 'WAITING_MOVE' && currentTeam && (
             <div className="h-full flex flex-col items-center justify-center gap-8 animate-in fade-in slide-in-from-right-8 duration-500">
               <div className="text-center">
-                <h3 className="text-2xl font-black mb-2" style={{ color: currentGroup.color }}>תור {currentGroup.name}</h3>
+                <h3 className="text-2xl font-black mb-2" style={{ color: currentTeam.color }}>תור {currentTeam.name}</h3>
                 <p className="text-slate-300 text-lg">לחצו על העמודה בלוח שלתוכה תרצו להפיל דיסקית.</p>
               </div>
               
               <div className={`p-8 rounded-full border-4 border-dashed transition-all duration-500 ${previewMove ? 'border-transparent' : 'border-slate-600 animate-pulse'}`}
-                   style={previewMove ? { backgroundColor: currentGroup.color } : {}}>
+                   style={previewMove ? { backgroundColor: currentTeam.color } : {}}>
                 <AlignJustify size={64} className={previewMove ? 'text-white rotate-90 drop-shadow-md' : 'text-slate-600 rotate-90'} />
               </div>
 
@@ -290,14 +391,25 @@ export default function Connect4Game({ onBackToMenu }) {
                     ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:scale-105 hover:shadow-[0_0_20px_rgba(245,158,11,0.5)] text-white cursor-pointer' 
                     : 'bg-white/5 text-slate-500 cursor-not-allowed border border-white/5'}`}
               >
-                <HelpCircle size={24} /> אשר עמודה והצג שאלה
+                <HelpCircle size={24} /> אשר עמודה והגרל תלמידים
               </button>
             </div>
           )}
 
           {gameState === 'QUESTION' && currentQuestion && (
             <div className="h-full flex flex-col animate-in fade-in zoom-in-95 duration-500">
-              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-4 border border-white/10 shadow-inner">
+              
+              {/* --- הצגת 2 התלמידים שהוגרלו לתור הנוכחי --- */}
+              <div className="bg-purple-900/40 border border-purple-500/30 rounded-2xl p-4 mb-3 text-center shadow-inner">
+                <p className="text-xs text-purple-300 font-bold mb-1">🎯 התלמידים שנבחרו לענות:</p>
+                <p className="text-xl font-black text-yellow-300 tracking-wide drop-shadow-sm">
+                  {selectedStudents.length > 0 
+                    ? selectedStudents.map(s => s.name).join(' ⚔️ ') 
+                    : 'טוען תלמיד...'}
+                </p>
+              </div>
+
+              <div className="shrink-0 flex items-center justify-between bg-slate-900/80 rounded-2xl p-4 mb-3 border border-white/10 shadow-inner">
                 <div className="flex items-center gap-2 text-slate-400">
                   <Timer size={20} />
                   <span className="font-medium text-lg">זמן נותר:</span>
@@ -307,13 +419,13 @@ export default function Connect4Game({ onBackToMenu }) {
                 </span>
               </div>
 
-              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-6 flex flex-col justify-center shadow-lg mb-4">
-                <p className="text-2xl font-bold text-blue-50 text-center leading-relaxed">
+              <div className="flex-1 overflow-y-auto bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-400/30 rounded-2xl p-3 md:p-4 flex flex-col justify-center shadow-lg mb-3">
+                <p className="text-base sm:text-lg font-semibold text-blue-50 text-center leading-snug break-words">
                   {currentQuestion.q}
                 </p>
               </div>
 
-              <div className={`shrink-0 h-[80px] rounded-2xl flex items-center justify-center p-4 mb-4 transition-all duration-500 border-2 
+              <div className={`shrink-0 h-[70px] rounded-2xl flex items-center justify-center p-3 mb-3 transition-all duration-500 border-2 
                   ${showSolution ? 'bg-amber-500/20 border-amber-500/50' : 'bg-transparent border-transparent'}`}>
                 {showSolution && (
                   <p className="text-xl font-black text-amber-400 text-center animate-in slide-in-from-bottom-2">
@@ -347,20 +459,17 @@ export default function Connect4Game({ onBackToMenu }) {
         </div>
       </div>
 
-      {/* =========================================================================
-          אזור הלוח (Main Board)
-          ========================================================================= */}
+      {/* אזור הלוח */}
       <div className="flex-1 min-w-0 h-full flex items-center justify-center p-4 md:p-12 relative z-10">
-        
-        {/* קונטיינר ה-SVG - מונע לחלוטין חיתוכים, הדיסקיות מאחורי המכסה! */}
         <div className="w-full h-full max-h-[85vh] flex items-center justify-center p-4">
            <svg viewBox={`0 0 ${cols * 100} ${rows * 100}`} className="w-full h-full max-w-4xl drop-shadow-[0_20px_50px_rgba(0,0,0,0.8)] border-4 border-slate-800 bg-[#141423] rounded-2xl overflow-hidden">
              
-             {/* 1. ציור הדיסקיות השמורות על הלוח (נמצאות מתחת למכסה) */}
+             {/* ציור הדיסקיות */}
              {board.flatMap((row, r) => row.map((val, c) => {
                if (val === 0) return null;
                const isJustDropped = lastDrop?.r === r && lastDrop?.c === c;
-               const color = val === 1 ? '#E94560' : '#FFD700';
+               const droppingTeam = teams.find(t => t.id === val);
+               const color = droppingTeam ? droppingTeam.color : '#FFF';
                return (
                  <circle
                    key={`${r}-${c}`}
@@ -372,20 +481,19 @@ export default function Connect4Game({ onBackToMenu }) {
                    strokeWidth="3"
                    style={isJustDropped ? {
                      animation: 'connect4drop 0.6s forwards',
-                     // חישוב גובה הנפילה המדויק מחוץ ללוח:
                      '--start-y': `-${(r + 1) * 100}px`
                    } : {}}
                  />
                );
              }))}
 
-             {/* 2. הדיסקית המהבהבת (Preview) */}
-             {previewMove && (
+             {/* המיקום המהבהב */}
+             {previewMove && currentTeam && (
                <circle
                  cx={previewMove.col * 100 + 50}
                  cy={previewMove.row * 100 + 50}
                  r="42"
-                 fill={currentGroup.id === 1 ? '#E94560' : '#FFD700'}
+                 fill={currentTeam.color}
                  opacity="0.4"
                  stroke="#FFD700"
                  strokeWidth="4"
@@ -394,10 +502,10 @@ export default function Connect4Game({ onBackToMenu }) {
                />
              )}
 
-             {/* 3. המכסה הכחול המחורר - שומר על צורה עגולה ומושלמת לחורים */}
+             {/* המכסה */}
              <path fill="#0F3460" fillRule="evenodd" d={buildSVGPlate()} className="pointer-events-none" />
 
-             {/* 4. טבעות הניצחון (מעל המכסה) */}
+             {/* טבעות הניצחון */}
              {winningCells.map((cell, i) => (
                <circle
                  key={`win-${i}`}
@@ -412,7 +520,7 @@ export default function Connect4Game({ onBackToMenu }) {
                />
              ))}
 
-             {/* 5. עמודות לחיצות נסתרות שיקבלו את קליק העכבר */}
+             {/* עמודות לחיצה */}
              {Array.from({length: cols}).map((_, c) => (
                <rect
                  key={`colclick-${c}`}
@@ -429,7 +537,7 @@ export default function Connect4Game({ onBackToMenu }) {
            </svg>
         </div>
 
-        {/* מסך ניצחון מרהיב */}
+        {/* מסך ניצחון */}
         {gameState === 'GAME_OVER' && (
           <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md overflow-hidden">
             <div className="absolute inset-0" style={{ backgroundColor: `${getWinner().color}20` }} />
@@ -445,7 +553,7 @@ export default function Connect4Game({ onBackToMenu }) {
 
             <div className="relative animate-[spin_10s_linear_infinite] p-1.5 rounded-[42px]" style={{ background: `linear-gradient(45deg, ${getWinner().color}, transparent, ${getWinner().color})` }}>
               <div className="bg-slate-900/90 border border-white/10 rounded-[40px] p-16 flex flex-col items-center shadow-2xl animate-in zoom-in-75 duration-700"
-                   style={{ boxShadow: `0 0 100px ${getWinner().glow}` }}>
+                   style={{ boxShadow: `0 0 100px ${getWinner().color}88` }}>
                 
                 <div className="relative mb-8">
                   <div className="absolute inset-0 bg-yellow-400 blur-3xl opacity-30 animate-pulse" />
@@ -475,7 +583,7 @@ export default function Connect4Game({ onBackToMenu }) {
         )}
       </div>
 
-      {/* תפריט הגדרות קופץ */}
+      {/* הגדרות */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in">
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 w-[400px] shadow-2xl">
@@ -519,7 +627,7 @@ export default function Connect4Game({ onBackToMenu }) {
         </div>
       )}
 
-      {/* תפריט אישור מותאם */}
+      {/* אישור יציאה */}
       {confirmDialog.isOpen && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in">
           <div className="bg-slate-900 border border-rose-500/30 rounded-3xl p-8 w-[400px] shadow-2xl text-center">
