@@ -9,7 +9,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
   
   const [gameState, setGameState] = useState('WAITING_START'); 
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
-  const [isLoadingData, setIsLoadingData] = useState(true); // <--- מנעול הטעינה שלנו
+  const [isLoadingData, setIsLoadingData] = useState(true); 
   
   const [board, setBoard] = useState(Array(6).fill(null).map(() => Array(7).fill(0)));
   const [previewMove, setPreviewMove] = useState(null); 
@@ -35,7 +35,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
   // 1. טעינת נתונים חכמה
   useEffect(() => {
     const fetchData = async () => {
-      setIsLoadingData(true); // נועל את כפתור ה-Play
+      setIsLoadingData(true); 
       if (!session?.user?.id || !selectedBank) return;
 
       const { data: qData } = await supabase
@@ -79,7 +79,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
         setCurrentTeamIndex(Math.floor(Math.random() * dynamicTeams.length));
       }
       
-      setIsLoadingData(false); // פותח את כפתור ה-Play אחרי שהכל סיים לטעון
+      setIsLoadingData(false); 
     };
 
     fetchData();
@@ -272,7 +272,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
     });
   };
 
-  const handleBackToMenu = () => {
+ const handleBackToMenu = () => {
     setConfirmDialog({
       isOpen: true,
       message: "האם אתה בטוח שברצונך לצאת ולחזור לתפריט הראשי? המשחק לא יישמר.",
@@ -301,13 +301,16 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
   return (
     <div dir="rtl" className="h-screen w-full bg-[#001F3F] text-white font-sans flex flex-col md:flex-row overflow-hidden relative">
       
+      {/* כאן האנימציה הפיזיקלית הרכה */}
       <style>{`
         @keyframes connect4drop {
           0% { transform: translateY(var(--start-y)); animation-timing-function: ease-in; }
-          45% { transform: translateY(0); animation-timing-function: ease-out; }
-          65% { transform: translateY(-40px); animation-timing-function: ease-in; }
-          80% { transform: translateY(0); animation-timing-function: ease-out; }
-          90% { transform: translateY(-10px); animation-timing-function: ease-in; }
+          40% { transform: translateY(0); animation-timing-function: ease-out; }
+          60% { transform: translateY(calc(var(--start-y) * 0.36)); animation-timing-function: ease-in; }
+          75% { transform: translateY(0); animation-timing-function: ease-out; }
+          87% { transform: translateY(calc(var(--start-y) * 0.13)); animation-timing-function: ease-in; }
+          95% { transform: translateY(0); animation-timing-function: ease-out; }
+          98% { transform: translateY(calc(var(--start-y) * 0.04)); animation-timing-function: ease-in; }
           100% { transform: translateY(0); }
         }
       `}</style>
@@ -324,6 +327,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
             </div>
             <h1 className="text-3xl font-black tracking-wide text-white">4 בשורה</h1>
           </div>
+          {/* הכפתור שפותח את ההגדרות (ושם נמצא כפתור היציאה) */}
           <button onClick={() => setShowSettings(true)} className="p-2 rounded-full hover:bg-white/10 text-slate-400 hover:text-white transition-all">
             <Settings size={22} />
           </button>
@@ -451,12 +455,6 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
             </div>
           )}
         </div>
-
-        <div className="mt-auto pt-6 border-t border-white/10 shrink-0">
-          <button onClick={handleBackToMenu} className="w-full py-4 rounded-xl bg-red-950/40 text-red-400 hover:bg-red-600 hover:text-white border border-red-500/20 font-bold transition-all flex items-center justify-center gap-2">
-            <span>חזור לתפריט הראשי</span> <ArrowRight size={18} />
-          </button>
-        </div>
       </div>
 
       {/* אזור הלוח */}
@@ -464,7 +462,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
         <div className="w-full h-full max-h-[85vh] flex items-center justify-center p-4">
            <svg viewBox={`0 0 ${cols * 100} ${rows * 100}`} className="w-full h-full max-w-4xl drop-shadow-[0_20px_50px_rgba(0,0,0,0.8)] border-4 border-slate-800 bg-[#141423] rounded-2xl overflow-hidden">
              
-             {/* ציור הדיסקיות */}
+             {/* ציור הדיסקיות - כולל האנימציה המעודכנת! */}
              {board.flatMap((row, r) => row.map((val, c) => {
                if (val === 0) return null;
                const isJustDropped = lastDrop?.r === r && lastDrop?.c === c;
@@ -480,7 +478,8 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
                    stroke="rgba(255,255,255,0.2)"
                    strokeWidth="3"
                    style={isJustDropped ? {
-                     animation: 'connect4drop 0.6s forwards',
+                     /* זמן הנפילה מורחב לאנימציה איטית ונעימה */
+                     animation: `connect4drop ${0.8 + (r * 0.12)}s forwards`,
                      '--start-y': `-${(r + 1) * 100}px`
                    } : {}}
                  />
@@ -583,7 +582,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
         )}
       </div>
 
-      {/* הגדרות */}
+      {/* הגדרות - עכשיו עם כפתור החזרה לתפריט! */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in">
           <div className="bg-slate-900 border border-white/10 rounded-3xl p-8 w-[400px] shadow-2xl">
@@ -618,9 +617,14 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
               </div>
             </div>
 
-            <div className="mt-10 pt-6 border-t border-white/10">
+            {/* כאן נמצאים שני הכפתורים (איפוס, וחזרה לתפריט ראשי) */}
+            <div className="mt-10 pt-6 border-t border-white/10 flex flex-col gap-3">
               <button onClick={handleResetGame} className="w-full py-4 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-600/30 hover:bg-rose-600 hover:text-white font-bold flex items-center justify-center gap-2 transition-all">
                 <RotateCcw size={20} /> שמור ואפס לוח
+              </button>
+              
+              <button onClick={handleBackToMenu} className="w-full py-4 rounded-xl bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700 hover:text-white font-bold flex items-center justify-center gap-2 transition-all">
+                <span>חזור לתפריט הראשי</span> <ArrowRight size={18} />
               </button>
             </div>
           </div>

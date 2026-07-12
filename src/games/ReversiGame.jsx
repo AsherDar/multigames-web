@@ -287,7 +287,7 @@ export default function ReversiGame({ onBackToMenu, selectedBank, session }) {
     });
   };
 
-  const handleBackToMenu = () => {
+const handleBackToMenu = () => {
     setConfirmDialog({
       isOpen: true,
       message: "האם אתה בטוח שברצונך לצאת ולחזור לתפריט הראשי? המשחק לא יישמר.",
@@ -297,7 +297,6 @@ export default function ReversiGame({ onBackToMenu, selectedBank, session }) {
       }
     });
   };
-
   const cellSize = 100; 
   
   const renderBoard = () => {
@@ -592,9 +591,13 @@ export default function ReversiGame({ onBackToMenu, selectedBank, session }) {
               </div>
             </div>
 
-            <div className="mt-10 pt-6 border-t border-white/10">
+            <div className="mt-10 pt-6 border-t border-white/10 flex flex-col gap-3">
               <button onClick={handleResetGame} className="w-full py-4 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-600/30 hover:bg-rose-600 hover:text-white font-bold flex items-center justify-center gap-2 transition-all">
-                <RotateCcw size={20} /> אפס לוח לחלוטין
+                <RotateCcw size={20} /> שמור ואפס לוח
+              </button>
+              
+              <button onClick={handleBackToMenu} className="w-full py-4 rounded-xl bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700 hover:text-white font-bold flex items-center justify-center gap-2 transition-all">
+                <span>חזור לתפריט הראשי</span> <ArrowRight size={18} />
               </button>
             </div>
           </div>
