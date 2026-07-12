@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient';
 // הוספתי את האייקון Eye עבור המשחק החדש
-import { Hexagon, LayoutGrid, Disc, AlignJustify, Anchor, Gamepad2, RotateCcw, LogOut, Settings, Mail, Lock, Eye } from 'lucide-react';
+import { Hexagon, LayoutGrid, Disc, AlignJustify, Anchor, Gamepad2, RotateCcw, LogOut, Settings, Mail, Lock, Eye, Hash } from 'lucide-react';
 
 // ייבוא פאנל הניהול (נמצא בתוך src)
 import TeacherDashboard from './TeacherDashboard';
@@ -14,6 +14,7 @@ import HexGame from './games/HexGame';
 import ReversiGame from './games/ReversiGame';
 import UltimateTicTacToeGame from './games/UltimateTicTacToeGame';
 import SpotMatchGame from './games/SpotMatchGame';
+import BingoGame from './games/BingoGame';
 
 // ==========================================
 // רכיב כרטיסייה עבור מסך הפתיחה (העיצוב המקורי שלך)
@@ -149,8 +150,7 @@ export default function App() {
   if (currentScreen === 'hexGame') return <HexGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
   if (currentScreen === 'reversiGame') return <ReversiGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
   if (currentScreen === 'ultimateTicTacToeGame') return <UltimateTicTacToeGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
-  
-  // הוספת הניתוב למשחק החדש:
+  if (currentScreen === 'bingoGame') return <BingoGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
   if (currentScreen === 'spotMatchGame') return <SpotMatchGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
 
   // ==========================================
@@ -179,9 +179,8 @@ export default function App() {
           <GameCard title="רברסי" icon={Disc} glowColor="#7b2cbf" onClick={() => handleGameStart("reversiGame")} />
           <GameCard title="ארבע בשורה" icon={AlignJustify} glowColor="#ff9e00" onClick={() => handleGameStart("connect4Game")} />
           <GameCard title="מלחמה ימית" icon={Anchor} glowColor="#00f5d4" onClick={() => handleGameStart("battleshipGame")} />
-          <GameCard title="איקס-עיגול אסטרטגי" icon={Gamepad2} glowColor="#f15bb5" onClick={() => handleGameStart("ultimateTicTacToeGame")} />
-          
-          {/* הוספת הכפתור של המשחק החדש */}
+          <GameCard title="איקס-עיגול אסטרטגי" icon={Gamepad2} glowColor="#f15bb5" onClick={() => handleGameStart("ultimateTicTacToeGame")} />      
+          <GameCard title="בינגו טריוויה" icon={Hash} glowColor="#06b6d4" onClick={() => handleGameStart("bingoGame")} />
           <GameCard title="מצא את ההתאמה" icon={Eye} glowColor="#ffea00" onClick={() => handleGameStart("spotMatchGame")} />
         </div>
 
