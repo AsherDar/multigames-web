@@ -496,6 +496,9 @@ export default function SpotMatchGame({ onBackToMenu, selectedBank, session }) {
               <button onClick={handleResetGame} className="w-full py-4 rounded-xl bg-rose-600/20 text-rose-400 border border-rose-600/30 hover:bg-rose-600 hover:text-white font-bold flex items-center justify-center gap-2 transition-all">
                 <RotateCcw size={20} /> שמור ואפס לוח
               </button>
+              <button onClick={handleBackToMenu} className="w-full py-4 rounded-xl bg-slate-800 text-slate-300 border border-slate-600 hover:bg-slate-700 hover:text-white font-bold transition-all">
+                חזור לתפריט הראשי
+              </button>
             </div>
           </div>
         </div>
