@@ -24,7 +24,7 @@ export default function SpotMatchGame({ onBackToMenu, selectedBank, session }) {
   const [gameState, setGameState] = useState('WAITING_START'); 
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
   const [isLoadingData, setIsLoadingData] = useState(true); 
-  const [isFlipping, setIsFlipping] = useState(false); // סטייט חדש לאנימציית ההיפוך
+  const [isFlipping, setIsFlipping] = useState(false);
   
   const [cardA, setCardA] = useState([]);
   const [cardB, setCardB] = useState([]);
@@ -114,17 +114,16 @@ export default function SpotMatchGame({ onBackToMenu, selectedBank, session }) {
     const shuffledA = shuffleArray(itemsA);
     const shuffledB = shuffleArray(itemsB);
     
-    // בוחרים נקודות עוגן אקראיות לקלפים (כדי שיהיו מפוזרים)
     const positionsA = shuffleArray(GRID_POSITIONS).slice(0, itemsPerCard);
     const positionsB = shuffleArray(GRID_POSITIONS).slice(0, itemsPerCard);
 
-    // פונקציית עיצוב לסמלים מפוזרים
+    // מספור בלתי תלוי (1 עד כמה שיש בכל קלף)
     const formatItem = (emoji, index, positions) => ({
       emoji,
       number: index + 1,
       rotation: Math.random() * 360,
-      size: Math.floor(Math.random() * 20) + 35, // גודל קצת יותר קטן כדי שיכנסו 12
-      x: positions[index].x + (Math.random() * 8 - 4), // רעד קל מסביב לעוגן
+      size: Math.floor(Math.random() * 20) + 35,
+      x: positions[index].x + (Math.random() * 8 - 4),
       y: positions[index].y + (Math.random() * 8 - 4),
     });
 
@@ -133,12 +132,11 @@ export default function SpotMatchGame({ onBackToMenu, selectedBank, session }) {
     setTargetSymbol(target);
   }, [itemsPerCard]);
 
-  // פונקציה שמפעילה את האנימציה ומחליפה קלפים
   const flipAndGenerate = () => {
-    setIsFlipping(true); // מתחיל היפוך (מכווץ את הקלף)
+    setIsFlipping(true); 
     setTimeout(() => {
-      generateNewCards(); // מחליף את הסמלים כשהקלף "הפוך" ובלתי נראה
-      setIsFlipping(false); // פותח חזרה את הקלף
+      generateNewCards(); 
+      setIsFlipping(false); 
     }, 300);
   };
 
