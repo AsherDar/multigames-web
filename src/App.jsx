@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from './lib/supabaseClient';
-import { Hexagon, LayoutGrid, Disc, AlignJustify, Anchor, Gamepad2, RotateCcw, LogOut, Settings, Mail, Lock } from 'lucide-react';
+// הוספתי את האייקון Eye עבור המשחק החדש
+import { Hexagon, LayoutGrid, Disc, AlignJustify, Anchor, Gamepad2, RotateCcw, LogOut, Settings, Mail, Lock, Eye } from 'lucide-react';
 
 // ייבוא פאנל הניהול (נמצא בתוך src)
 import TeacherDashboard from './TeacherDashboard';
@@ -12,6 +13,7 @@ import DotsAndBoxesGame from './games/DotsAndBoxesGame';
 import HexGame from './games/HexGame';
 import ReversiGame from './games/ReversiGame';
 import UltimateTicTacToeGame from './games/UltimateTicTacToeGame';
+import SpotMatchGame from './games/SpotMatchGame';
 
 // ==========================================
 // רכיב כרטיסייה עבור מסך הפתיחה (העיצוב המקורי שלך)
@@ -147,6 +149,9 @@ export default function App() {
   if (currentScreen === 'hexGame') return <HexGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
   if (currentScreen === 'reversiGame') return <ReversiGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
   if (currentScreen === 'ultimateTicTacToeGame') return <UltimateTicTacToeGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
+  
+  // הוספת הניתוב למשחק החדש:
+  if (currentScreen === 'spotMatchGame') return <SpotMatchGame session={session} selectedBank={selectedBank} onBackToMenu={() => setCurrentScreen('menu')} />;
 
   // ==========================================
   // 5. תצוגת התפריט הראשי (העיצוב המקורי)
@@ -167,7 +172,7 @@ export default function App() {
           </p>
         </div>
 
-        {/* גריד המשחקים מלא */}
+        {/* גריד המשחקים המעודכן */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8 w-full mb-16 px-4">
           <GameCard title="כיבוש הקס" icon={Hexagon} glowColor="#e81cff" onClick={() => handleGameStart("hexGame")} />
           <GameCard title="קווים וריבועים" icon={LayoutGrid} glowColor="#40ff5a" onClick={() => handleGameStart("dotsAndBoxesGame")} />
@@ -175,6 +180,9 @@ export default function App() {
           <GameCard title="ארבע בשורה" icon={AlignJustify} glowColor="#ff9e00" onClick={() => handleGameStart("connect4Game")} />
           <GameCard title="מלחמה ימית" icon={Anchor} glowColor="#00f5d4" onClick={() => handleGameStart("battleshipGame")} />
           <GameCard title="איקס-עיגול אסטרטגי" icon={Gamepad2} glowColor="#f15bb5" onClick={() => handleGameStart("ultimateTicTacToeGame")} />
+          
+          {/* הוספת הכפתור של המשחק החדש */}
+          <GameCard title="מצא את ההתאמה" icon={Eye} glowColor="#ffea00" onClick={() => handleGameStart("spotMatchGame")} />
         </div>
 
         {/* סרגל כלים תחתון מחובר למסד הנתונים */}
