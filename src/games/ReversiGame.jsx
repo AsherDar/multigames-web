@@ -420,8 +420,7 @@ const handleBackToMenu = () => {
           })}
         </div>
 
-        <div className="flex-1 min-h-[420px] shrink-0 bg-black/20 rounded-3xl border border-white/5 p-5 relative overflow-hidden flex flex-col">
-          
+        <div className="flex-1 min-h-[350px] shrink-0 bg-black/20 rounded-3xl border border-white/5 p-5 relative overflow-y-auto flex flex-col mt-4">          
           {gameState === 'WAITING_START' && (
             <div className="h-full flex flex-col items-center justify-center gap-6 animate-in fade-in duration-700">
               <div className="w-24 h-24 rounded-full bg-emerald-500/10 flex items-center justify-center">
@@ -514,12 +513,7 @@ const handleBackToMenu = () => {
           )}
         </div>
 
-        <div className="mt-auto pt-6 border-t border-white/10 shrink-0">
-          <button onClick={handleBackToMenu} className="w-full py-4 rounded-xl bg-red-950/40 text-red-400 hover:bg-red-600 hover:text-white border border-red-500/20 font-bold transition-all flex items-center justify-center gap-2">
-            <span>חזור לתפריט הראשי</span> <ArrowRight size={18} />
-          </button>
-        </div>
-
+        
       </div>
 
       <div className="flex-1 min-w-0 h-full flex items-center justify-center p-4 md:p-12 relative z-10">

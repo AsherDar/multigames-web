@@ -353,7 +353,7 @@ export default function Connect4Game({ onBackToMenu, selectedBank, session }) {
           })}
         </div>
 
-        <div className="flex-1 min-h-[350px] shrink-0 bg-black/20 rounded-3xl border border-white/5 p-5 relative overflow-hidden flex flex-col mt-4">
+        <div className="flex-1 min-h-[350px] shrink-0 bg-black/20 rounded-3xl border border-white/5 p-5 relative overflow-y-auto flex flex-col mt-4">
           
           {gameState === 'WAITING_START' && (
             <div className="h-full flex flex-col items-center justify-center gap-6 animate-in fade-in duration-700">
