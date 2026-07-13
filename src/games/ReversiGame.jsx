@@ -237,10 +237,7 @@ export default function ReversiGame({ onBackToMenu, selectedBank, session }) {
     
     if (board[r][c] === 0 && isAdjacentToAnyDisk(r, c)) {
       const flips = getDisksToFlip(r, c, currentTeam.internalId);
-      if (flips.length === 0) {
-        alert("מהלך לא חוקי! מהלך חייב להפוך לפחות דיסקית אחת של יריב.");
-        return;
-      }
+      // השינוי: אישור בחירת המשבצת גם אם ה-flips ריק ואין בליעה
       setPreviewMove({ r, c, flips });
     }
   };

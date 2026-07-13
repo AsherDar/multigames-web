@@ -96,12 +96,27 @@ export default function App() {
   }, [currentScreen, session]);
 
   // פעולות מערכת
-  const handleLogin = async (e) => {
+const handleLogin = async (e) => {
     e.preventDefault();
     setLoginError('');
     setIsLoggingIn(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setLoginError("אימייל או סיסמה שגויים.");
+    
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    
+    if (error) {
+      setLoginError("אימייל או סיסמה שגויים.");
+    } else if (data?.user) {
+      // --- תיעוד ההתחברות לסטטיסטיקה ---
+      await supabase.from('activity_logs').insert([
+        { 
+          teacher_id: data.user.id, 
+          action_type: 'LOGIN', 
+          game_name: null 
+        }
+      ]);
+      // ------------------------------------
+    }
+    
     setIsLoggingIn(false);
   };
 
@@ -109,14 +124,26 @@ export default function App() {
     await supabase.auth.signOut();
   };
 
-  const handleGameStart = (gameId) => {
+  const handleGameStart = async (gameId) => {
     if (!selectedBank) {
       alert("אנא בחר מאגר שאלות לפני תחילת המשחק!");
       return;
     }
+
+    // --- שולח תיעוד לסטטיסטיקה בענן ---
+    if (session?.user?.id) {
+      await supabase.from('activity_logs').insert([
+        { 
+          teacher_id: session.user.id, 
+          action_type: 'PLAY_GAME', 
+          game_name: gameId 
+        }
+      ]);
+    }
+    // ------------------------------------
+
     setCurrentScreen(gameId);
   };
-
   // ==========================================
   // 3. מסך התחברות (לפני כניסה למערכת)
   // ==========================================
